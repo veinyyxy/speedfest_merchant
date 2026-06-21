@@ -1,0 +1,261 @@
+import 'package:flutter/material.dart';
+
+import '../Models/merchant_order.dart';
+
+class MerchantOrderDetailSheet extends StatelessWidget {
+  const MerchantOrderDetailSheet({super.key, required this.order});
+
+  final MerchantOrder order;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(20, 10, 20, 20 + bottomPadding),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    order.displayId,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                _StatusChip(status: order.status),
+              ],
+            ),
+            const SizedBox(height: 18),
+            _DetailRow(label: 'Created', value: order.createdAtLabel),
+            _DetailRow(label: 'Fulfillment', value: order.fulfillmentLabel),
+            _DetailRow(label: 'Payment', value: order.paymentStatusLabel),
+            _DetailRow(label: 'Customer', value: order.customerName),
+            _DetailRow(label: 'Phone', value: order.customerPhone),
+            _DetailRow(label: 'Email', value: order.customerEmail),
+            _DetailRow(label: 'Address', value: order.shippingAddress),
+            _DetailRow(label: 'Table', value: order.tableNumber),
+            _DetailRow(label: 'Pickup', value: order.pickupLocation),
+            _DetailRow(label: 'Note', value: order.deliveryNote),
+            const SizedBox(height: 12),
+            Divider(color: Colors.grey.shade200),
+            const SizedBox(height: 12),
+            Text(
+              'Items',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            if (order.items.isEmpty)
+              Text(
+                'No item details available.',
+                style: TextStyle(color: Colors.grey.shade600),
+              )
+            else
+              ...order.items.map((item) => _ItemLine(item: item)),
+            const SizedBox(height: 12),
+            Divider(color: Colors.grey.shade200),
+            const SizedBox(height: 12),
+            _MoneyRow(label: 'Subtotal', value: order.pricing.subtotal),
+            _MoneyRow(label: 'Delivery fee', value: order.pricing.deliveryFee),
+            _MoneyRow(
+              label: 'Service fee',
+              value: order.pricing.deliveryServiceFee,
+            ),
+            _MoneyRow(label: 'Taxes', value: order.pricing.taxes),
+            _MoneyRow(label: 'Tip', value: order.pricing.tipAmount),
+            _MoneyRow(label: 'Total', value: order.totalAmount, isTotal: true),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ItemLine extends StatelessWidget {
+  const _ItemLine({required this.item});
+
+  final MerchantOrderItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  '${item.quantity}x ${item.name}',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Text('CAD \$${item.price.toStringAsFixed(2)}'),
+            ],
+          ),
+          if (item.optionsLabel.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              item.optionsLabel,
+              style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+            ),
+          ],
+          if (item.specialInstructions.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              'Note: ${item.specialInstructions}',
+              style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    if (value.trim().isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 104,
+            child: Text(label, style: TextStyle(color: Colors.grey.shade600)),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MoneyRow extends StatelessWidget {
+  const _MoneyRow({
+    required this.label,
+    required this.value,
+    this.isTotal = false,
+  });
+
+  final String label;
+  final double value;
+  final bool isTotal;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isTotal && value == 0) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ),
+          Text(
+            'CAD \$${value.toStringAsFixed(2)}',
+            style: TextStyle(
+              fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _statusColor(status, Theme.of(context).colorScheme.primary);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withAlpha(28),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        _humanize(status),
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+}
+
+Color _statusColor(String status, Color fallback) {
+  switch (status) {
+    case 'cancelled':
+    case 'refunded':
+      return Colors.red.shade700;
+    case 'ready':
+    case 'on_the_way':
+      return Colors.blue.shade700;
+    case 'delivered':
+    case 'completed':
+      return Colors.green.shade700;
+    default:
+      return fallback;
+  }
+}
+
+String _humanize(String value) {
+  return value
+      .replaceAll(RegExp(r'[_\-]+'), ' ')
+      .split(RegExp(r'\s+'))
+      .where((word) => word.isNotEmpty)
+      .map((word) {
+        final lower = word.toLowerCase();
+        return '${lower[0].toUpperCase()}${lower.substring(1)}';
+      })
+      .join(' ');
+}
