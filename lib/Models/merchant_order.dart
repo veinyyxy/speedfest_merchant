@@ -16,6 +16,7 @@ class MerchantOrder {
     required this.pickupLocation,
     required this.deliveryNote,
     required this.items,
+    required this.review,
     required this.pricing,
   });
 
@@ -35,6 +36,7 @@ class MerchantOrder {
   final String pickupLocation;
   final String deliveryNote;
   final List<MerchantOrderItem> items;
+  final MerchantOrderReview? review;
   final MerchantOrderPricing pricing;
 
   String get displayId => id.isEmpty ? 'Order' : 'Order #${_shortId(id)}';
@@ -42,10 +44,15 @@ class MerchantOrder {
   String get fulfillmentLabel => _humanize(fulfillmentType);
   String get statusLabel => _humanize(status);
   String get paymentStatusLabel => _humanize(paymentStatus);
+  bool get isReviewed => review != null;
+  String get reviewComment => review?.comment ?? '';
 
   factory MerchantOrder.fromJson(Map<String, dynamic> json) {
     final customer = _asMap(_firstValue(json, const ['customer', 'user']));
     final pricing = _asMap(_firstValue(json, const ['pricing']));
+    final reviewData = _asMap(
+      _firstValue(json, const ['review', 'order_review', 'orderReview']),
+    );
     final items = _readList(json, const [
       'items',
       'order_items',
@@ -106,6 +113,9 @@ class MerchantOrder {
       ]),
       deliveryNote: _firstString(json, const ['delivery_note', 'deliveryNote']),
       items: items,
+      review: reviewData.isEmpty
+          ? null
+          : MerchantOrderReview.fromJson(reviewData),
       pricing: MerchantOrderPricing.fromJson(pricing),
     );
   }
@@ -118,6 +128,7 @@ class MerchantOrderItem {
     required this.price,
     required this.options,
     required this.specialInstructions,
+    this.reviewRating = 0,
   });
 
   final String name;
@@ -125,6 +136,7 @@ class MerchantOrderItem {
   final double price;
   final List<MerchantOrderItemOption> options;
   final String specialInstructions;
+  final int reviewRating;
 
   String get optionsLabel {
     if (options.isEmpty) return '';
@@ -161,6 +173,82 @@ class MerchantOrderItem {
         'special_instructions',
         'specialInstructions',
       ]),
+      reviewRating: _firstInt(json, const [
+        'review_rating',
+        'reviewRating',
+        'rating',
+      ]),
+    );
+  }
+}
+
+class MerchantOrderReview {
+  const MerchantOrderReview({
+    required this.id,
+    required this.orderId,
+    required this.userId,
+    required this.comment,
+    required this.createdAtLabel,
+    required this.updatedAtLabel,
+    required this.items,
+  });
+
+  final String id;
+  final String orderId;
+  final String userId;
+  final String comment;
+  final String createdAtLabel;
+  final String updatedAtLabel;
+  final List<MerchantOrderReviewItem> items;
+
+  bool get hasComment => comment.trim().isNotEmpty;
+  bool get hasItemRatings => items.any((item) => item.rating > 0);
+
+  factory MerchantOrderReview.fromJson(Map<String, dynamic> json) {
+    return MerchantOrderReview(
+      id: _firstString(json, const ['review_id', 'reviewId', 'id']),
+      orderId: _firstString(json, const ['order_id', 'orderId']),
+      userId: _firstString(json, const ['user_id', 'userId']),
+      comment: _firstString(json, const [
+        'comment',
+        'message',
+        'review_comment',
+        'reviewComment',
+      ]),
+      createdAtLabel: _formatDate(
+        _firstValue(json, const ['created_at', 'createdAt']),
+      ),
+      updatedAtLabel: _formatDate(
+        _firstValue(json, const ['updated_at', 'updatedAt']),
+      ),
+      items: _readList(json, const [
+        'items',
+        'item_reviews',
+        'itemReviews',
+      ]).map(MerchantOrderReviewItem.fromJson).toList(growable: false),
+    );
+  }
+}
+
+class MerchantOrderReviewItem {
+  const MerchantOrderReviewItem({
+    required this.id,
+    required this.orderItemId,
+    required this.productId,
+    required this.rating,
+  });
+
+  final String id;
+  final String orderItemId;
+  final String productId;
+  final int rating;
+
+  factory MerchantOrderReviewItem.fromJson(Map<String, dynamic> json) {
+    return MerchantOrderReviewItem(
+      id: _firstString(json, const ['review_id', 'reviewId', 'id']),
+      orderItemId: _firstString(json, const ['order_item_id', 'orderItemId']),
+      productId: _firstString(json, const ['product_id', 'productId']),
+      rating: _firstInt(json, const ['rating', 'stars']),
     );
   }
 }

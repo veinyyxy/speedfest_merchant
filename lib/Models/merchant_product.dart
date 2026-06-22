@@ -14,6 +14,8 @@ class MerchantProduct {
     required this.categories,
     required this.optionGroups,
     required this.isOptionProduct,
+    required this.ratingAverage,
+    required this.ratingCount,
   });
 
   final String id;
@@ -28,11 +30,14 @@ class MerchantProduct {
   final List<String> categories;
   final List<MerchantOptionGroup> optionGroups;
   final bool isOptionProduct;
+  final double ratingAverage;
+  final int ratingCount;
 
   bool get isActive => status.toLowerCase() == 'active';
   String get categoryLabel =>
       categories.isEmpty ? 'Uncategorized' : categories.join(', ');
   String get statusLabel => status.isEmpty ? 'Unknown' : _humanize(status);
+  bool get hasRatings => ratingCount > 0;
 
   factory MerchantProduct.fromJson(Map<String, dynamic> json) {
     return MerchantProduct(
@@ -54,6 +59,18 @@ class MerchantProduct {
       optionGroups: _readOptionGroups(json['option_groups']),
       isOptionProduct:
           json['is_option_product'] == true || json['isOptionProduct'] == true,
+      ratingAverage: _firstDouble(json, const [
+        'rating_average',
+        'ratingAverage',
+        'average_rating',
+        'averageRating',
+      ]),
+      ratingCount: _firstInt(json, const [
+        'rating_count',
+        'ratingCount',
+        'review_count',
+        'reviewCount',
+      ]),
     );
   }
 }
@@ -92,6 +109,17 @@ double _firstDouble(Map<String, dynamic> json, List<String> keys) {
     if (value == null) continue;
     if (value is num) return value.toDouble();
     final parsed = double.tryParse(value.toString());
+    if (parsed != null) return parsed;
+  }
+  return 0;
+}
+
+int _firstInt(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value == null) continue;
+    if (value is num) return value.toInt();
+    final parsed = int.tryParse(value.toString());
     if (parsed != null) return parsed;
   }
   return 0;

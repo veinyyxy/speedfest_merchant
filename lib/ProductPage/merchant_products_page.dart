@@ -442,6 +442,8 @@ class _ProductCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: Colors.grey.shade700),
                   ),
+                  const SizedBox(height: 4),
+                  _ProductRatingSummary(product: product),
                   if (product.description.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
@@ -490,6 +492,41 @@ class _ProductCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ProductRatingSummary extends StatelessWidget {
+  const _ProductRatingSummary({required this.product});
+
+  final MerchantProduct product;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasRatings = product.hasRatings;
+    final color = hasRatings ? Colors.amber.shade800 : Colors.grey.shade600;
+    final label = hasRatings
+        ? '${product.ratingAverage.toStringAsFixed(1)} (${product.ratingCount})'
+        : 'No ratings yet';
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          hasRatings ? Icons.star_rounded : Icons.star_border_rounded,
+          size: 17,
+          color: color,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: hasRatings ? Colors.grey.shade800 : Colors.grey.shade600,
+            fontSize: 12,
+            fontWeight: hasRatings ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 }

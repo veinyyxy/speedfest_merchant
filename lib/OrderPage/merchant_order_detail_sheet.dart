@@ -55,6 +55,12 @@ class MerchantOrderDetailSheet extends StatelessWidget {
             _DetailRow(label: 'Table', value: order.tableNumber),
             _DetailRow(label: 'Pickup', value: order.pickupLocation),
             _DetailRow(label: 'Note', value: order.deliveryNote),
+            if (order.isReviewed) ...[
+              const SizedBox(height: 12),
+              Divider(color: Colors.grey.shade200),
+              const SizedBox(height: 12),
+              _OrderReviewSection(order: order),
+            ],
             const SizedBox(height: 12),
             Divider(color: Colors.grey.shade200),
             const SizedBox(height: 12),
@@ -122,6 +128,10 @@ class _ItemLine extends StatelessWidget {
               style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
             ),
           ],
+          if (item.reviewRating > 0) ...[
+            const SizedBox(height: 5),
+            _ReadOnlyStarRating(rating: item.reviewRating),
+          ],
           if (item.specialInstructions.isNotEmpty) ...[
             const SizedBox(height: 3),
             Text(
@@ -131,6 +141,99 @@ class _ItemLine extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _OrderReviewSection extends StatelessWidget {
+  const _OrderReviewSection({required this.order});
+
+  final MerchantOrder order;
+
+  @override
+  Widget build(BuildContext context) {
+    final review = order.review;
+    if (review == null) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              Icons.rate_review_outlined,
+              size: 20,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Customer review',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (review.hasComment)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(review.comment),
+          )
+        else
+          Text(
+            'No overall note. Product ratings are shown with the items below.',
+            style: TextStyle(color: Colors.grey.shade700),
+          ),
+        if (review.createdAtLabel.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Reviewed ${review.createdAtLabel}',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ReadOnlyStarRating extends StatelessWidget {
+  const _ReadOnlyStarRating({required this.rating});
+
+  final int rating;
+
+  @override
+  Widget build(BuildContext context) {
+    final clampedRating = rating.clamp(0, 5);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var index = 1; index <= 5; index += 1)
+          Icon(
+            index <= clampedRating
+                ? Icons.star_rounded
+                : Icons.star_border_rounded,
+            size: 16,
+            color: index <= clampedRating
+                ? Colors.amber.shade700
+                : Colors.grey.shade400,
+          ),
+        const SizedBox(width: 6),
+        Text(
+          '$clampedRating/5',
+          style: TextStyle(
+            color: Colors.grey.shade700,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }
