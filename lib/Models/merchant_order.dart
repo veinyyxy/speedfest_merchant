@@ -40,9 +40,26 @@ class MerchantOrder {
   final MerchantOrderPricing pricing;
 
   String get displayId => id.isEmpty ? 'Order' : 'Order #${_shortId(id)}';
-  bool get isDelivery => fulfillmentType.toLowerCase() == 'delivery';
+  String get normalizedStatus => status.trim().toLowerCase();
+  String get normalizedPaymentStatus => paymentStatus.trim().toLowerCase();
+  String get normalizedFulfillmentType {
+    final normalized = fulfillmentType.trim().toLowerCase().replaceAll(
+      '-',
+      '_',
+    );
+    if (normalized == 'take_out') return 'takeout';
+    return normalized;
+  }
+
+  bool get isDelivery => normalizedFulfillmentType == 'delivery';
+  bool get isTakeout => normalizedFulfillmentType == 'takeout';
+  bool get isDineIn => normalizedFulfillmentType == 'dine_in';
+  bool get isPendingPayment =>
+      normalizedStatus == 'created' || normalizedPaymentStatus == 'pending';
   String get fulfillmentLabel => _humanize(fulfillmentType);
-  String get statusLabel => _humanize(status);
+  String get statusLabel =>
+      isPendingPayment ? 'Pending payment' : _humanize(status);
+  String get displayStatusLabel => statusLabel;
   String get paymentStatusLabel => _humanize(paymentStatus);
   bool get isReviewed => review != null;
   String get reviewComment => review?.comment ?? '';

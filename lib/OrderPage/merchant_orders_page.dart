@@ -15,6 +15,8 @@ class MerchantOrdersPage extends StatefulWidget {
 
 class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   bool _loaded = false;
+  String _fulfillmentFilter = 'all';
+  String _statusFilter = 'all';
 
   @override
   void didChangeDependencies() {
@@ -24,7 +26,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _fetchOrders());
   }
 
-  Future<void> _fetchOrders([String? status]) async {
+  Future<void> _fetchOrders() async {
     final session = context.read<MerchantSessionProvider>();
     final token = session.token;
     if (token == null) return;
@@ -32,8 +34,31 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     await context.read<MerchantOrdersProvider>().fetchOrders(
       apiClient: session.apiClient,
       token: token,
-      status: status,
     );
+  }
+
+  List<MerchantOrder> _filteredOrders(List<MerchantOrder> orders) {
+    return orders
+        .where(
+          (order) =>
+              _matchesFulfillmentFilter(order) && _matchesStatusFilter(order),
+        )
+        .toList(growable: false);
+  }
+
+  bool _matchesFulfillmentFilter(MerchantOrder order) {
+    if (_fulfillmentFilter == 'all') return true;
+    return order.normalizedFulfillmentType == _fulfillmentFilter;
+  }
+
+  bool _matchesStatusFilter(MerchantOrder order) {
+    if (_statusFilter == 'all') return true;
+
+    if (_statusFilter == 'pending_payment') {
+      return order.isPendingPayment;
+    }
+
+    return order.normalizedStatus == _statusFilter;
   }
 
   Future<void> _updateStatus(MerchantOrder order, String status) async {
@@ -62,7 +87,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     );
 
     if (ok) {
-      await _fetchOrders(ordersProvider.selectedStatus);
+      await _fetchOrders();
     }
   }
 
@@ -94,6 +119,8 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MerchantOrdersProvider>();
+    final orders = _filteredOrders(provider.orders);
+    final statusFilters = _statusFiltersForFulfillment(_fulfillmentFilter);
 
     return Scaffold(
       appBar: AppBar(
@@ -101,23 +128,36 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
         actions: [
           IconButton(
             tooltip: 'Refresh',
-            onPressed: provider.isLoading
-                ? null
-                : () => _fetchOrders(provider.selectedStatus),
+            onPressed: provider.isLoading ? null : _fetchOrders,
             icon: const Icon(Icons.refresh),
           ),
         ],
       ),
       body: Column(
         children: [
+          _FulfillmentFilterBar(
+            selectedType: _fulfillmentFilter,
+            onSelected: (type) {
+              setState(() {
+                _fulfillmentFilter = type;
+                if (!_statusAllowedForFulfillment(type, _statusFilter)) {
+                  _statusFilter = 'all';
+                }
+              });
+            },
+          ),
           _StatusFilterBar(
-            selectedStatus: provider.selectedStatus,
-            onSelected: _fetchOrders,
+            filters: statusFilters,
+            selectedStatus: _statusFilter,
+            onSelected: (status) {
+              setState(() => _statusFilter = status);
+            },
           ),
           Expanded(
             child: _OrdersBody(
               provider: provider,
-              onRefresh: () => _fetchOrders(provider.selectedStatus),
+              orders: orders,
+              onRefresh: _fetchOrders,
               onOpenDetail: _showDetail,
               onUpdateStatus: _updateStatus,
             ),
@@ -128,25 +168,61 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   }
 }
 
+class _FulfillmentFilterBar extends StatelessWidget {
+  const _FulfillmentFilterBar({
+    required this.selectedType,
+    required this.onSelected,
+  });
+
+  final String selectedType;
+  final ValueChanged<String> onSelected;
+
+  static const filters = <_FulfillmentFilter>[
+    _FulfillmentFilter('all', 'All'),
+    _FulfillmentFilter('delivery', 'Delivery'),
+    _FulfillmentFilter('takeout', 'Takeout'),
+    _FulfillmentFilter('dine_in', 'Dine-in'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 54,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        scrollDirection: Axis.horizontal,
+        itemCount: filters.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final filter = filters[index];
+          return ChoiceChip(
+            label: Text(filter.label),
+            selected: selectedType == filter.type,
+            onSelected: (_) => onSelected(filter.type),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _FulfillmentFilter {
+  const _FulfillmentFilter(this.type, this.label);
+
+  final String type;
+  final String label;
+}
+
 class _StatusFilterBar extends StatelessWidget {
   const _StatusFilterBar({
+    required this.filters,
     required this.selectedStatus,
     required this.onSelected,
   });
 
-  final String? selectedStatus;
-  final ValueChanged<String?> onSelected;
-
-  static const filters = <_OrderFilter>[
-    _OrderFilter(null, 'All'),
-    _OrderFilter('paid', 'Paid'),
-    _OrderFilter('accepted', 'Accepted'),
-    _OrderFilter('preparing', 'Preparing'),
-    _OrderFilter('ready', 'Ready'),
-    _OrderFilter('on_the_way', 'On the way'),
-    _OrderFilter('completed', 'Completed'),
-    _OrderFilter('cancelled', 'Cancelled'),
-  ];
+  final List<_OrderFilter> filters;
+  final String selectedStatus;
+  final ValueChanged<String> onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -173,19 +249,21 @@ class _StatusFilterBar extends StatelessWidget {
 class _OrderFilter {
   const _OrderFilter(this.status, this.label);
 
-  final String? status;
+  final String status;
   final String label;
 }
 
 class _OrdersBody extends StatelessWidget {
   const _OrdersBody({
     required this.provider,
+    required this.orders,
     required this.onRefresh,
     required this.onOpenDetail,
     required this.onUpdateStatus,
   });
 
   final MerchantOrdersProvider provider;
+  final List<MerchantOrder> orders;
   final Future<void> Function() onRefresh;
   final ValueChanged<MerchantOrder> onOpenDetail;
   final void Function(MerchantOrder order, String status) onUpdateStatus;
@@ -214,14 +292,23 @@ class _OrdersBody extends StatelessWidget {
       );
     }
 
+    if (orders.isEmpty) {
+      return _StateMessage(
+        icon: Icons.filter_list_off_outlined,
+        title: 'No matching orders',
+        message: 'Try another order type or status filter.',
+        onPressed: onRefresh,
+      );
+    }
+
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-        itemCount: provider.orders.length,
+        itemCount: orders.length,
         itemBuilder: (context, index) {
-          final order = provider.orders[index];
+          final order = orders[index];
           return _OrderCard(
             order: order,
             isUpdating: provider.isUpdating,
@@ -280,7 +367,7 @@ class _OrderCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                _StatusChip(status: order.status),
+                _StatusChip(order: order),
               ],
             ),
             const SizedBox(height: 14),
@@ -305,7 +392,7 @@ class _OrderCard extends StatelessWidget {
                 if (order.paymentStatusLabel.isNotEmpty)
                   _InfoPill(
                     icon: Icons.credit_card_outlined,
-                    label: order.paymentStatusLabel,
+                    label: 'Payment: ${order.paymentStatusLabel}',
                   ),
               ],
             ),
@@ -379,13 +466,16 @@ class _InfoPill extends StatelessWidget {
 }
 
 class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.status});
+  const _StatusChip({required this.order});
 
-  final String status;
+  final MerchantOrder order;
 
   @override
   Widget build(BuildContext context) {
-    final color = _statusColor(status, Theme.of(context).colorScheme.primary);
+    final color = _statusColor(
+      order.isPendingPayment ? 'pending_payment' : order.status,
+      Theme.of(context).colorScheme.primary,
+    );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -393,7 +483,7 @@ class _StatusChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        _humanize(status),
+        order.displayStatusLabel,
         style: TextStyle(
           color: color,
           fontWeight: FontWeight.bold,
@@ -494,6 +584,10 @@ List<_OrderAction> _destructiveActionsFor(MerchantOrder order) {
 
 Color _statusColor(String status, Color fallback) {
   switch (status) {
+    case 'created':
+    case 'pending':
+    case 'pending_payment':
+      return Colors.orange.shade800;
     case 'cancelled':
     case 'refunded':
       return Colors.red.shade700;
@@ -506,6 +600,59 @@ Color _statusColor(String status, Color fallback) {
     default:
       return fallback;
   }
+}
+
+const _allStatusFilters = <_OrderFilter>[
+  _OrderFilter('all', 'All'),
+  _OrderFilter('pending_payment', 'Pending payment'),
+  _OrderFilter('paid', 'Paid'),
+  _OrderFilter('accepted', 'Accepted'),
+  _OrderFilter('preparing', 'Preparing'),
+  _OrderFilter('ready', 'Ready'),
+  _OrderFilter('on_the_way', 'On the way'),
+  _OrderFilter('delivered', 'Delivered'),
+  _OrderFilter('completed', 'Completed'),
+  _OrderFilter('cancelled', 'Cancelled'),
+  _OrderFilter('refunded', 'Refunded'),
+];
+
+const _deliveryStatusFilters = <_OrderFilter>[
+  _OrderFilter('all', 'All'),
+  _OrderFilter('pending_payment', 'Pending payment'),
+  _OrderFilter('paid', 'Paid'),
+  _OrderFilter('accepted', 'Accepted'),
+  _OrderFilter('preparing', 'Preparing'),
+  _OrderFilter('ready', 'Ready'),
+  _OrderFilter('on_the_way', 'On the way'),
+  _OrderFilter('delivered', 'Delivered'),
+  _OrderFilter('cancelled', 'Cancelled'),
+  _OrderFilter('refunded', 'Refunded'),
+];
+
+const _nonDeliveryStatusFilters = <_OrderFilter>[
+  _OrderFilter('all', 'All'),
+  _OrderFilter('pending_payment', 'Pending payment'),
+  _OrderFilter('paid', 'Paid'),
+  _OrderFilter('accepted', 'Accepted'),
+  _OrderFilter('preparing', 'Preparing'),
+  _OrderFilter('ready', 'Ready'),
+  _OrderFilter('completed', 'Completed'),
+  _OrderFilter('cancelled', 'Cancelled'),
+  _OrderFilter('refunded', 'Refunded'),
+];
+
+List<_OrderFilter> _statusFiltersForFulfillment(String fulfillmentType) {
+  return switch (fulfillmentType) {
+    'delivery' => _deliveryStatusFilters,
+    'takeout' || 'dine_in' => _nonDeliveryStatusFilters,
+    _ => _allStatusFilters,
+  };
+}
+
+bool _statusAllowedForFulfillment(String fulfillmentType, String status) {
+  return _statusFiltersForFulfillment(
+    fulfillmentType,
+  ).any((filter) => filter.status == status);
 }
 
 String _humanize(String value) {
