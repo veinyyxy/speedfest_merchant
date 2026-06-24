@@ -23,6 +23,7 @@ class MerchantServiceConfig {
   static const merchantOrderDetailPath = '/api/merchant/orders/detail';
   static const merchantOrderStatusUpdatePath =
       '/api/merchant/orders/status/update';
+  static const merchantOrderRefundPath = '/api/merchant/orders/refund';
   static const merchantProductsPath = '/api/merchant/products';
   static const merchantCategoriesPath = '/api/merchant/categories';
   static const merchantCategoryCreatePath = '/api/merchant/categories/create';

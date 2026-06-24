@@ -91,6 +91,62 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     }
   }
 
+  Future<void> _refundOrder(MerchantOrder order) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Refund order?'),
+        content: Text(
+          'This will refund ${order.displayId} through the payment provider and mark the order as refunded.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Keep Order'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.orange.shade800,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Refund'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null) return;
+
+    final ordersProvider = context.read<MerchantOrdersProvider>();
+    final ok = await ordersProvider.refundOrder(
+      apiClient: session.apiClient,
+      token: token,
+      orderId: order.id,
+      note: 'Merchant refund',
+    );
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Refund request submitted for ${order.displayId}.'
+              : ordersProvider.errorMessage ?? 'Order could not be refunded.',
+        ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: ok ? null : Colors.red.shade700,
+      ),
+    );
+
+    if (ok) {
+      await _fetchOrders();
+    }
+  }
+
   Future<void> _showDetail(MerchantOrder order) async {
     final session = context.read<MerchantSessionProvider>();
     final token = session.token;
@@ -160,6 +216,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
               onRefresh: _fetchOrders,
               onOpenDetail: _showDetail,
               onUpdateStatus: _updateStatus,
+              onRefund: _refundOrder,
             ),
           ),
         ],
@@ -260,6 +317,7 @@ class _OrdersBody extends StatelessWidget {
     required this.onRefresh,
     required this.onOpenDetail,
     required this.onUpdateStatus,
+    required this.onRefund,
   });
 
   final MerchantOrdersProvider provider;
@@ -267,6 +325,7 @@ class _OrdersBody extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final ValueChanged<MerchantOrder> onOpenDetail;
   final void Function(MerchantOrder order, String status) onUpdateStatus;
+  final ValueChanged<MerchantOrder> onRefund;
 
   @override
   Widget build(BuildContext context) {
@@ -314,6 +373,7 @@ class _OrdersBody extends StatelessWidget {
             isUpdating: provider.isUpdating,
             onOpenDetail: () => onOpenDetail(order),
             onUpdateStatus: (status) => onUpdateStatus(order, status),
+            onRefund: () => onRefund(order),
           );
         },
       ),
@@ -327,12 +387,14 @@ class _OrderCard extends StatelessWidget {
     required this.isUpdating,
     required this.onOpenDetail,
     required this.onUpdateStatus,
+    required this.onRefund,
   });
 
   final MerchantOrder order;
   final bool isUpdating;
   final VoidCallback onOpenDetail;
   final ValueChanged<String> onUpdateStatus;
+  final VoidCallback onRefund;
 
   @override
   Widget build(BuildContext context) {
@@ -420,6 +482,8 @@ class _OrderCard extends StatelessWidget {
                   TextButton(
                     onPressed: isUpdating
                         ? null
+                        : action.status == 'refunded'
+                        ? onRefund
                         : () => onUpdateStatus(action.status),
                     style: TextButton.styleFrom(
                       foregroundColor: action.status == 'cancelled'
@@ -568,12 +632,16 @@ _OrderAction? _primaryActionFor(MerchantOrder order) {
 }
 
 List<_OrderAction> _destructiveActionsFor(MerchantOrder order) {
-  switch (order.status) {
+  if (order.isPendingPayment) {
+    return const [_OrderAction('cancelled', 'Cancel')];
+  }
+
+  switch (order.normalizedStatus) {
     case 'paid':
     case 'accepted':
     case 'preparing':
-      return const [_OrderAction('cancelled', 'Cancel')];
     case 'ready':
+    case 'on_the_way':
     case 'completed':
     case 'delivered':
       return const [_OrderAction('refunded', 'Refund')];

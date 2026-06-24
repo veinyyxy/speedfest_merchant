@@ -121,6 +121,45 @@ class MerchantOrdersProvider with ChangeNotifier {
     }
   }
 
+  Future<bool> refundOrder({
+    required SignedApiClient apiClient,
+    required String token,
+    required String orderId,
+    String? note,
+  }) async {
+    _isUpdating = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final body = <String, dynamic>{'order_id': orderId};
+      if (note != null && note.trim().isNotEmpty) {
+        body['note'] = note.trim();
+      }
+
+      final rawResponse = await apiClient.post(
+        MerchantServiceConfig.merchantOrderRefundPath,
+        body,
+        token: token,
+      );
+      final response = Map<String, dynamic>.from(rawResponse as Map);
+      final order = MerchantOrder.fromJson(
+        Map<String, dynamic>.from(response['order']),
+      );
+      _replaceOrder(order);
+      return true;
+    } on AppException catch (e) {
+      _errorMessage = e.message;
+      return false;
+    } catch (e) {
+      _errorMessage = 'Unable to refund order: $e';
+      return false;
+    } finally {
+      _isUpdating = false;
+      notifyListeners();
+    }
+  }
+
   void _replaceOrder(MerchantOrder order) {
     final nextOrders = [..._orders];
     final index = nextOrders.indexWhere((item) => item.id == order.id);
