@@ -145,6 +145,7 @@ class MerchantOrderItem {
     required this.price,
     required this.options,
     required this.specialInstructions,
+    this.itemSource = 'normal',
     this.reviewRating = 0,
   });
 
@@ -153,7 +154,10 @@ class MerchantOrderItem {
   final double price;
   final List<MerchantOrderItemOption> options;
   final String specialInstructions;
+  final String itemSource;
   final int reviewRating;
+
+  bool get isRewardItem => itemSource.toLowerCase() == 'reward';
 
   String get optionsLabel {
     if (options.isEmpty) return '';
@@ -181,6 +185,10 @@ class MerchantOrderItem {
       ], fallback: 'Item'),
       quantity: _firstInt(json, const ['quantity', 'qty'], fallback: 1),
       price: _firstDouble(json, const ['subtotal', 'price', 'unit_price']),
+      itemSource: _firstString(json, const [
+        'item_source',
+        'itemSource',
+      ], fallback: 'normal'),
       options: _readList(json, const [
         'selected_options',
         'selectedOptions',

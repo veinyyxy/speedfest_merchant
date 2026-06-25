@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../Controller/merchant_products_provider.dart';
 import '../Controller/merchant_rewards_provider.dart';
 import '../Controller/merchant_session_provider.dart';
+import '../Models/merchant_product.dart';
 import '../Models/merchant_reward.dart';
 
 class MerchantRewardEditorPage extends StatefulWidget {
@@ -24,7 +26,10 @@ class _MerchantRewardEditorPageState extends State<MerchantRewardEditorPage> {
   final _expiresController = TextEditingController();
   final _sortOrderController = TextEditingController();
 
+  bool _loadedProducts = false;
   bool _active = true;
+  String _rewardType = 'discount';
+  String? _productId;
   bool get _isEditing => widget.reward != null;
 
   @override
@@ -43,7 +48,17 @@ class _MerchantRewardEditorPageState extends State<MerchantRewardEditorPage> {
     _discountController.text = reward.discountAmount.toStringAsFixed(2);
     _expiresController.text = reward.expiresInDays.toString();
     _sortOrderController.text = reward.sortOrder.toString();
+    _rewardType = reward.rewardType == 'product' ? 'product' : 'discount';
+    _productId = reward.productId.isEmpty ? null : reward.productId;
     _active = reward.active;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loadedProducts) return;
+    _loadedProducts = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadProducts());
   }
 
   @override
@@ -55,6 +70,17 @@ class _MerchantRewardEditorPageState extends State<MerchantRewardEditorPage> {
     _expiresController.dispose();
     _sortOrderController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadProducts() async {
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null) return;
+
+    await context.read<MerchantProductsProvider>().fetchProducts(
+      apiClient: session.apiClient,
+      token: token,
+    );
   }
 
   Future<void> _save() async {
@@ -71,12 +97,15 @@ class _MerchantRewardEditorPageState extends State<MerchantRewardEditorPage> {
       title: _titleController.text.trim(),
       description: _descriptionController.text.trim(),
       pointsCost: _readInt(_pointsController.text),
-      discountAmount: _readDouble(_discountController.text),
+      discountAmount: _rewardType == 'discount'
+          ? _readDouble(_discountController.text)
+          : 0,
       expiresInDays: _readInt(_expiresController.text),
       active: _active,
       sortOrder: _readOptionalInt(_sortOrderController.text),
-      rewardType: 'discount',
+      rewardType: _rewardType,
       currency: 'CAD',
+      productId: _rewardType == 'product' ? _productId ?? '' : '',
     );
 
     final ok = _isEditing
@@ -115,6 +144,10 @@ class _MerchantRewardEditorPageState extends State<MerchantRewardEditorPage> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MerchantRewardsProvider>();
+    final productsProvider = context.watch<MerchantProductsProvider>();
+    final products = _rewardProducts(productsProvider.products);
+    final selectedProductId =
+        products.any((product) => product.id == _productId) ? _productId : null;
 
     return Scaffold(
       appBar: AppBar(
@@ -152,6 +185,31 @@ class _MerchantRewardEditorPageState extends State<MerchantRewardEditorPage> {
                   validator: _requiredValidator,
                 ),
                 const SizedBox(height: 12),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                      value: 'discount',
+                      icon: Icon(Icons.local_offer_outlined),
+                      label: Text('Amount off'),
+                    ),
+                    ButtonSegment(
+                      value: 'product',
+                      icon: Icon(Icons.restaurant_menu_outlined),
+                      label: Text('Product'),
+                    ),
+                  ],
+                  selected: {_rewardType},
+                  onSelectionChanged: (selection) {
+                    final value = selection.first;
+                    setState(() {
+                      _rewardType = value;
+                      if (value == 'discount') {
+                        _productId = null;
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
                 TextFormField(
                   controller: _descriptionController,
                   minLines: 2,
@@ -178,19 +236,54 @@ class _MerchantRewardEditorPageState extends State<MerchantRewardEditorPage> {
                     ),
                     validator: _positiveIntValidator,
                   ),
-                  second: TextFormField(
-                    controller: _discountController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
+                  second: _rewardType == 'discount'
+                      ? TextFormField(
+                          controller: _discountController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Discount amount',
+                            prefixText: 'CAD \$',
+                            border: OutlineInputBorder(),
+                          ),
+                          validator: _positiveMoneyValidator,
+                        )
+                      : const _ProductRewardValueHint(),
+                ),
+                if (_rewardType == 'product') ...[
+                  const SizedBox(height: 12),
+                  if (productsProvider.isLoading && products.isEmpty) ...[
+                    const LinearProgressIndicator(),
+                    const SizedBox(height: 12),
+                  ],
+                  DropdownButtonFormField<String>(
+                    value: selectedProductId,
                     decoration: const InputDecoration(
-                      labelText: 'Discount amount',
-                      prefixText: 'CAD \$',
+                      labelText: 'Reward product',
                       border: OutlineInputBorder(),
                     ),
-                    validator: _positiveMoneyValidator,
+                    items: [
+                      for (final product in products)
+                        DropdownMenuItem(
+                          value: product.id,
+                          child: Text(_productLabel(product)),
+                        ),
+                    ],
+                    onChanged: (value) => setState(() => _productId = value),
+                    validator: _productValidator,
                   ),
-                ),
+                  if (productsProvider.errorMessage != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      productsProvider.errorMessage!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ],
                 const SizedBox(height: 12),
                 _ResponsivePair(
                   first: TextFormField(
@@ -308,6 +401,37 @@ class _ResponsivePair extends StatelessWidget {
   }
 }
 
+class _ProductRewardValueHint extends StatelessWidget {
+  const _ProductRewardValueHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return InputDecorator(
+      decoration: const InputDecoration(
+        labelText: 'Reward value',
+        border: OutlineInputBorder(),
+      ),
+      child: Text(
+        'The selected product will be added to the order for free.',
+        style: TextStyle(color: Colors.grey.shade700),
+      ),
+    );
+  }
+}
+
+List<MerchantProduct> _rewardProducts(List<MerchantProduct> products) {
+  return products
+      .where((product) => product.id.isNotEmpty && product.status != 'archived')
+      .toList(growable: false)
+    ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+}
+
+String _productLabel(MerchantProduct product) {
+  final price = 'CAD \$${product.basePrice.toStringAsFixed(2)}';
+  final status = product.status == 'active' ? '' : ' • ${product.statusLabel}';
+  return '${product.name} • $price$status';
+}
+
 String? _requiredValidator(String? value) {
   if (value == null || value.trim().isEmpty) {
     return 'This field is required';
@@ -319,6 +443,13 @@ String? _positiveIntValidator(String? value) {
   final parsed = int.tryParse(value?.trim() ?? '');
   if (parsed == null || parsed <= 0) {
     return 'Enter a number greater than 0';
+  }
+  return null;
+}
+
+String? _productValidator(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return 'Choose a product reward';
   }
   return null;
 }

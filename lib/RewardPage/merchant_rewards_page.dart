@@ -292,7 +292,9 @@ class _RewardCard extends StatelessWidget {
                 context,
               ).colorScheme.primary.withAlpha(28),
               child: Icon(
-                Icons.local_offer_outlined,
+                reward.isProductReward
+                    ? Icons.restaurant_menu_outlined
+                    : Icons.local_offer_outlined,
                 color: Theme.of(context).colorScheme.primary,
               ),
             ),
@@ -339,9 +341,10 @@ class _RewardCard extends StatelessWidget {
                         label: '${reward.pointsCost} pts',
                       ),
                       _InfoChip(
-                        icon: Icons.payments_outlined,
-                        label:
-                            '${reward.currency} \$${reward.discountAmount.toStringAsFixed(2)} off',
+                        icon: reward.isProductReward
+                            ? Icons.fastfood_outlined
+                            : Icons.payments_outlined,
+                        label: reward.valueLabel,
                       ),
                       _InfoChip(
                         icon: Icons.schedule_outlined,

@@ -113,9 +113,35 @@ class _ItemLine extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(
-                  '${item.quantity}x ${item.name}',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      '${item.quantity}x ${item.name}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    if (item.isRewardItem)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withAlpha(28),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          'Reward',
+                          style: TextStyle(
+                            color: Colors.green.shade700,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               Text('CAD \$${item.price.toStringAsFixed(2)}'),

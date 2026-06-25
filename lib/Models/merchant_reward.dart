@@ -10,6 +10,11 @@ class MerchantReward {
     required this.sortOrder,
     required this.rewardType,
     required this.currency,
+    this.productId = '',
+    this.productName = '',
+    this.productImagePath,
+    this.productBasePrice = 0,
+    this.productStatus = '',
     this.createdAt,
     this.updatedAt,
   });
@@ -24,8 +29,19 @@ class MerchantReward {
   final int sortOrder;
   final String rewardType;
   final String currency;
+  final String productId;
+  final String productName;
+  final String? productImagePath;
+  final double productBasePrice;
+  final String productStatus;
   final String? createdAt;
   final String? updatedAt;
+
+  bool get isProductReward => rewardType.toLowerCase() == 'product';
+
+  String get valueLabel => isProductReward
+      ? (productName.isEmpty ? 'Free product' : 'Free product: $productName')
+      : '${currency.toUpperCase()} \$${discountAmount.toStringAsFixed(2)} off';
 
   factory MerchantReward.fromJson(Map<String, dynamic> json) {
     return MerchantReward(
@@ -48,6 +64,19 @@ class MerchantReward {
         'rewardType',
       ], fallback: 'discount'),
       currency: _firstString(json, const ['currency'], fallback: 'CAD'),
+      productId: _firstString(json, const ['product_id', 'productId']),
+      productName: _firstString(json, const ['product_name', 'productName']),
+      productImagePath: _nullableString(
+        json['product_image_path'] ?? json['productImagePath'],
+      ),
+      productBasePrice: _firstDouble(json, const [
+        'product_base_price',
+        'productBasePrice',
+      ]),
+      productStatus: _firstString(json, const [
+        'product_status',
+        'productStatus',
+      ]),
       createdAt: _nullableString(json['created_at'] ?? json['createdAt']),
       updatedAt: _nullableString(json['updated_at'] ?? json['updatedAt']),
     );
@@ -58,6 +87,8 @@ class MerchantReward {
     'title': title,
     'description': description,
     'points_cost': pointsCost,
+    'reward_type': rewardType,
+    if (productId.isNotEmpty) 'product_id': productId,
     'discount_amount': discountAmount,
     'expires_in_days': expiresInDays,
     'active': active,
