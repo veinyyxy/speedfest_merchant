@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'Controller/merchant_orders_provider.dart';
 import 'Controller/merchant_products_provider.dart';
+import 'Controller/merchant_rewards_provider.dart';
 import 'Controller/merchant_session_provider.dart';
 import 'HomePage/merchant_shell_page.dart';
 import 'LoginPage/merchant_login_page.dart';
@@ -16,6 +17,7 @@ void main() {
         ),
         ChangeNotifierProvider(create: (_) => MerchantOrdersProvider()),
         ChangeNotifierProvider(create: (_) => MerchantProductsProvider()),
+        ChangeNotifierProvider(create: (_) => MerchantRewardsProvider()),
       ],
       child: const MerchantApp(),
     ),
