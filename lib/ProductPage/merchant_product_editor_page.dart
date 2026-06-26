@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../Common/merchant_service_config.dart';
 import '../Controller/merchant_products_provider.dart';
 import '../Controller/merchant_session_provider.dart';
 import '../Models/merchant_category.dart';
@@ -25,6 +27,7 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
   final _descriptionController = TextEditingController();
   final _priceController = TextEditingController();
   final _imageUrlController = TextEditingController();
+  final _imagePicker = ImagePicker();
   final List<_OptionGroupForm> _optionGroups = [];
 
   bool _loadedEditorData = false;
@@ -195,6 +198,47 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
     _showMessage('Category created.');
   }
 
+  Future<void> _pickAndUploadImage(TextEditingController controller) async {
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null) return;
+    final provider = context.read<MerchantProductsProvider>();
+
+    try {
+      final pickedImage = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 2200,
+        imageQuality: 88,
+      );
+      if (pickedImage == null) return;
+
+      final bytes = await pickedImage.readAsBytes();
+      if (bytes.isEmpty) {
+        _showMessage('Selected image is empty.');
+        return;
+      }
+
+      final imageUrl = await provider.uploadProductImage(
+        apiClient: session.apiClient,
+        token: token,
+        bytes: bytes,
+        filename: _pickedImageFilename(pickedImage),
+      );
+      if (!mounted) return;
+
+      if (imageUrl == null) {
+        _showMessage(provider.errorMessage ?? 'Image could not be uploaded.');
+        return;
+      }
+
+      setState(() => controller.text = imageUrl);
+      _showMessage('Image uploaded.');
+    } catch (e) {
+      if (!mounted) return;
+      _showMessage('Image could not be uploaded: $e');
+    }
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
@@ -217,7 +261,9 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
         title: Text(_isEditing ? 'Edit product' : 'Add product'),
         actions: [
           TextButton.icon(
-            onPressed: provider.isCreating ? null : _save,
+            onPressed: provider.isCreating || provider.isUploadingImage
+                ? null
+                : _save,
             icon: provider.isCreating
                 ? const SizedBox(
                     width: 16,
@@ -365,13 +411,11 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                TextFormField(
+                _ImageUrlField(
                   controller: _imageUrlController,
-                  keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(
-                    labelText: 'Image URL',
-                    border: OutlineInputBorder(),
-                  ),
+                  isUploading: provider.isUploadingImage,
+                  onUpload: () => _pickAndUploadImage(_imageUrlController),
+                  onChanged: () => setState(() {}),
                 ),
                 const SizedBox(height: 12),
                 SwitchListTile(
@@ -390,7 +434,9 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
               groups: _optionGroups,
               existingProducts: existingProducts,
               existingOptionGroups: existingOptionGroups,
+              isUploadingImage: provider.isUploadingImage,
               onAddGroup: _addOptionGroup,
+              onUploadImage: _pickAndUploadImage,
               onChanged: () => setState(() {}),
             ),
           ],
@@ -399,7 +445,9 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         child: FilledButton.icon(
-          onPressed: provider.isCreating ? null : _save,
+          onPressed: provider.isCreating || provider.isUploadingImage
+              ? null
+              : _save,
           icon: provider.isCreating
               ? const SizedBox(
                   width: 18,
@@ -439,6 +487,92 @@ class _SectionCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ImageUrlField extends StatelessWidget {
+  const _ImageUrlField({
+    required this.controller,
+    required this.isUploading,
+    required this.onUpload,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final bool isUploading;
+  final VoidCallback onUpload;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final rawUrl = controller.text.trim();
+    final previewUrl = _resolveImageUrl(rawUrl);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (previewUrl.isNotEmpty) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              height: 150,
+              width: double.infinity,
+              color: Colors.grey.shade200,
+              child: Image.network(
+                previewUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Center(
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    color: Colors.grey.shade600,
+                    size: 34,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        TextFormField(
+          controller: controller,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+            labelText: 'Image URL',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (_) => onChanged(),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: isUploading ? null : onUpload,
+              icon: isUploading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.upload_file_outlined),
+              label: Text(isUploading ? 'Uploading' : 'Upload image'),
+            ),
+            if (rawUrl.isNotEmpty)
+              TextButton.icon(
+                onPressed: isUploading
+                    ? null
+                    : () {
+                        controller.clear();
+                        onChanged();
+                      },
+                icon: const Icon(Icons.close),
+                label: const Text('Remove'),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -534,14 +668,18 @@ class _OptionsSection extends StatelessWidget {
     required this.groups,
     required this.existingProducts,
     required this.existingOptionGroups,
+    required this.isUploadingImage,
     required this.onAddGroup,
+    required this.onUploadImage,
     required this.onChanged,
   });
 
   final List<_OptionGroupForm> groups;
   final List<MerchantProduct> existingProducts;
   final List<MerchantOptionGroup> existingOptionGroups;
+  final bool isUploadingImage;
   final VoidCallback onAddGroup;
+  final Future<void> Function(TextEditingController controller) onUploadImage;
   final VoidCallback onChanged;
 
   @override
@@ -564,6 +702,8 @@ class _OptionsSection extends StatelessWidget {
             depth: 0,
             existingProducts: existingProducts,
             existingOptionGroups: existingOptionGroups,
+            isUploadingImage: isUploadingImage,
+            onUploadImage: onUploadImage,
             onChanged: onChanged,
             onRemove: () {
               groups.removeAt(i).dispose();
@@ -589,6 +729,8 @@ class _OptionGroupEditor extends StatelessWidget {
     required this.depth,
     required this.existingProducts,
     required this.existingOptionGroups,
+    required this.isUploadingImage,
+    required this.onUploadImage,
     required this.onChanged,
     required this.onRemove,
   });
@@ -598,6 +740,8 @@ class _OptionGroupEditor extends StatelessWidget {
   final int depth;
   final List<MerchantProduct> existingProducts;
   final List<MerchantOptionGroup> existingOptionGroups;
+  final bool isUploadingImage;
+  final Future<void> Function(TextEditingController controller) onUploadImage;
   final VoidCallback onChanged;
   final VoidCallback onRemove;
 
@@ -769,6 +913,8 @@ class _OptionGroupEditor extends StatelessWidget {
                 depth: depth,
                 existingProducts: existingProducts,
                 existingOptionGroups: existingOptionGroups,
+                isUploadingImage: isUploadingImage,
+                onUploadImage: onUploadImage,
                 onChanged: onChanged,
                 onRemove: () {
                   group.options.removeAt(i).dispose();
@@ -832,6 +978,8 @@ class _OptionEditor extends StatelessWidget {
     required this.depth,
     required this.existingProducts,
     required this.existingOptionGroups,
+    required this.isUploadingImage,
+    required this.onUploadImage,
     required this.onChanged,
     required this.onRemove,
   });
@@ -841,6 +989,8 @@ class _OptionEditor extends StatelessWidget {
   final int depth;
   final List<MerchantProduct> existingProducts;
   final List<MerchantOptionGroup> existingOptionGroups;
+  final bool isUploadingImage;
+  final Future<void> Function(TextEditingController controller) onUploadImage;
   final VoidCallback onChanged;
   final VoidCallback onRemove;
 
@@ -969,13 +1119,11 @@ class _OptionEditor extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            TextFormField(
+            _ImageUrlField(
               controller: option.imageUrlController,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                labelText: 'Image URL',
-                border: OutlineInputBorder(),
-              ),
+              isUploading: isUploadingImage,
+              onUpload: () => onUploadImage(option.imageUrlController),
+              onChanged: onChanged,
             ),
             const SizedBox(height: 12),
             SwitchListTile(
@@ -997,6 +1145,8 @@ class _OptionEditor extends StatelessWidget {
             depth: depth + 1,
             existingProducts: existingProducts,
             existingOptionGroups: existingOptionGroups,
+            isUploadingImage: isUploadingImage,
+            onUploadImage: onUploadImage,
             onChanged: onChanged,
           ),
         ],
@@ -1011,6 +1161,8 @@ class _ChildGroupsEditor extends StatelessWidget {
     required this.depth,
     required this.existingProducts,
     required this.existingOptionGroups,
+    required this.isUploadingImage,
+    required this.onUploadImage,
     required this.onChanged,
   });
 
@@ -1018,6 +1170,8 @@ class _ChildGroupsEditor extends StatelessWidget {
   final int depth;
   final List<MerchantProduct> existingProducts;
   final List<MerchantOptionGroup> existingOptionGroups;
+  final bool isUploadingImage;
+  final Future<void> Function(TextEditingController controller) onUploadImage;
   final VoidCallback onChanged;
 
   @override
@@ -1050,6 +1204,8 @@ class _ChildGroupsEditor extends StatelessWidget {
             depth: depth,
             existingProducts: existingProducts,
             existingOptionGroups: existingOptionGroups,
+            isUploadingImage: isUploadingImage,
+            onUploadImage: onUploadImage,
             onChanged: onChanged,
             onRemove: () {
               groups.removeAt(i).dispose();
@@ -1272,6 +1428,39 @@ MerchantOptionGroup? _findOptionGroup(
     if (optionGroup.id == id) return optionGroup;
   }
   return null;
+}
+
+String _resolveImageUrl(String imageUrl) {
+  final trimmed = imageUrl.trim();
+  if (trimmed.isEmpty ||
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
+  final baseUrl = MerchantServiceConfig.baseUrl.endsWith('/')
+      ? MerchantServiceConfig.baseUrl.substring(
+          0,
+          MerchantServiceConfig.baseUrl.length - 1,
+        )
+      : MerchantServiceConfig.baseUrl;
+  if (trimmed.startsWith('/')) return '$baseUrl$trimmed';
+  return '$baseUrl/$trimmed';
+}
+
+String _pickedImageFilename(XFile image) {
+  final name = image.name.trim();
+  if (name.contains('.') && name.split('.').last.trim().isNotEmpty) {
+    return name;
+  }
+
+  final path = image.path.trim();
+  final pathName = path.split(RegExp(r'[\\/]')).last;
+  if (pathName.contains('.') && pathName.split('.').last.trim().isNotEmpty) {
+    return pathName;
+  }
+
+  return 'product-image.jpg';
 }
 
 String? _requiredValidator(String? value) {

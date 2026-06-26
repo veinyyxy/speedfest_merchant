@@ -13,6 +13,7 @@ class MerchantProductsProvider with ChangeNotifier {
   bool _isLoadingOptionGroups = false;
   bool _isUpdating = false;
   bool _isCreating = false;
+  bool _isUploadingImage = false;
   String? _errorMessage;
   List<MerchantProduct> _products = const [];
   List<MerchantCategory> _categories = const [];
@@ -23,6 +24,7 @@ class MerchantProductsProvider with ChangeNotifier {
   bool get isLoadingOptionGroups => _isLoadingOptionGroups;
   bool get isUpdating => _isUpdating;
   bool get isCreating => _isCreating;
+  bool get isUploadingImage => _isUploadingImage;
   String? get errorMessage => _errorMessage;
   List<MerchantProduct> get products => _products;
   List<MerchantCategory> get categories => _categories;
@@ -219,6 +221,43 @@ class MerchantProductsProvider with ChangeNotifier {
       return false;
     } finally {
       _isCreating = false;
+      notifyListeners();
+    }
+  }
+
+  Future<String?> uploadProductImage({
+    required SignedApiClient apiClient,
+    required String token,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    _isUploadingImage = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final rawResponse = await apiClient.uploadFile(
+        MerchantServiceConfig.merchantImageUploadPath,
+        fieldName: 'image',
+        bytes: bytes,
+        filename: filename,
+        token: token,
+      );
+      final response = Map<String, dynamic>.from(rawResponse as Map);
+      final imageUrl = response['image_url']?.toString().trim() ?? '';
+      if (imageUrl.isEmpty) {
+        _errorMessage = 'Image upload did not return a URL.';
+        return null;
+      }
+      return imageUrl;
+    } on AppException catch (e) {
+      _errorMessage = e.message;
+      return null;
+    } catch (e) {
+      _errorMessage = 'Unable to upload image: $e';
+      return null;
+    } finally {
+      _isUploadingImage = false;
       notifyListeners();
     }
   }

@@ -79,6 +79,32 @@ class SignedApiClient {
     }
   }
 
+  Future<dynamic> uploadFile(
+    String path, {
+    required String fieldName,
+    required List<int> bytes,
+    required String filename,
+    String? token,
+    Map<String, String>? fields,
+  }) async {
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$path'));
+    request.headers.addAll(_headers(payload: '', token: token));
+    if (fields != null) {
+      request.fields.addAll(fields);
+    }
+    request.files.add(
+      http.MultipartFile.fromBytes(fieldName, bytes, filename: filename),
+    );
+
+    try {
+      final streamedResponse = await _httpClient.send(request);
+      final response = await http.Response.fromStream(streamedResponse);
+      return _handleResponse(response);
+    } on http.ClientException catch (e) {
+      throw AppException('Network error: ${e.message}');
+    }
+  }
+
   Map<String, String> _headers({required String payload, String? token}) {
     if (hmacSecretKey.trim().isEmpty || clientId.trim().isEmpty) {
       throw const AppException(
