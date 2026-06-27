@@ -416,22 +416,36 @@ class _ProductCard extends StatelessWidget {
                       Expanded(
                         child: Text(
                           product.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      if (product.isOptionProduct) ...[
-                        const _OptionProductChip(),
-                        const SizedBox(width: 8),
-                      ],
-                      _MenuVisibilityChip(visibleInMenu: product.visibleInMenu),
-                      const SizedBox(width: 8),
-                      _StatusChip(status: product.status),
-                      IconButton(
-                        tooltip: 'Edit product',
-                        onPressed: onEdit,
-                        icon: const Icon(Icons.edit_outlined),
+                      Flexible(
+                        child: Align(
+                          alignment: Alignment.topRight,
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            alignment: WrapAlignment.end,
+                            children: [
+                              if (product.isOptionProduct)
+                                const _OptionProductChip(),
+                              _MenuVisibilityChip(
+                                visibleInMenu: product.visibleInMenu,
+                              ),
+                              _StatusChip(status: product.status),
+                              IconButton(
+                                tooltip: 'Edit product',
+                                onPressed: onEdit,
+                                icon: const Icon(Icons.edit_outlined),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),

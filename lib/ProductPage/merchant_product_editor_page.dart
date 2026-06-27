@@ -199,6 +199,40 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
   }
 
   Future<void> _pickAndUploadImage(TextEditingController controller) async {
+    final source = await _showImageSourcePicker();
+    if (!mounted || source == null) return;
+    await _pickAndUploadImageFromSource(controller, source);
+  }
+
+  Future<ImageSource?> _showImageSourcePicker() {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take photo'),
+              onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadImageFromSource(
+    TextEditingController controller,
+    ImageSource source,
+  ) async {
     final session = context.read<MerchantSessionProvider>();
     final token = session.token;
     if (token == null) return;
@@ -206,9 +240,11 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
 
     try {
       final pickedImage = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 2200,
-        imageQuality: 88,
+        source: source,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 82,
+        preferredCameraDevice: CameraDevice.rear,
       );
       if (pickedImage == null) return;
 
