@@ -5,6 +5,7 @@ import '../Controller/merchant_session_provider.dart';
 import '../OrderPage/merchant_orders_page.dart';
 import '../ProductPage/merchant_products_page.dart';
 import '../RewardPage/merchant_rewards_page.dart';
+import '../SettingsPage/merchant_settings_page.dart';
 
 class MerchantShellPage extends StatefulWidget {
   const MerchantShellPage({super.key});
@@ -20,6 +21,7 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
     MerchantOrdersPage(),
     MerchantProductsPage(),
     MerchantRewardsPage(),
+    MerchantSettingsPage(),
     _AccountPage(),
   ];
 
@@ -61,6 +63,11 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
                   label: Text('Rewards'),
                 ),
                 NavigationRailDestination(
+                  icon: Icon(Icons.tune_outlined),
+                  selectedIcon: Icon(Icons.tune),
+                  label: Text('Settings'),
+                ),
+                NavigationRailDestination(
                   icon: Icon(Icons.account_circle_outlined),
                   selectedIcon: Icon(Icons.account_circle),
                   label: Text('Account'),
@@ -96,6 +103,11 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
             icon: Icon(Icons.card_giftcard_outlined),
             selectedIcon: Icon(Icons.card_giftcard),
             label: 'Rewards',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.tune_outlined),
+            selectedIcon: Icon(Icons.tune),
+            label: 'Settings',
           ),
           NavigationDestination(
             icon: Icon(Icons.account_circle_outlined),

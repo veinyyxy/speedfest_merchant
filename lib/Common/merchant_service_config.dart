@@ -39,4 +39,5 @@ class MerchantServiceConfig {
   static const merchantRewardCreatePath = '/api/merchant/rewards/create';
   static const merchantRewardUpdatePath = '/api/merchant/rewards/update';
   static const merchantRewardStatusPath = '/api/merchant/rewards/status';
+  static const merchantBuyerConfigPath = '/api/merchant/settings/buyer-config';
 }
