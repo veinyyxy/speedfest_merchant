@@ -164,6 +164,39 @@ class MerchantOrdersProvider with ChangeNotifier {
     }
   }
 
+  Future<MerchantOrder?> syncPaymentRecords({
+    required SignedApiClient apiClient,
+    required String token,
+    required String orderId,
+  }) async {
+    _isUpdating = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final rawResponse = await apiClient.post(
+        MerchantServiceConfig.merchantOrderPaymentSyncPath,
+        {'order_id': orderId},
+        token: token,
+      );
+      final response = Map<String, dynamic>.from(rawResponse as Map);
+      final order = MerchantOrder.fromJson(
+        Map<String, dynamic>.from(response['order']),
+      );
+      _replaceOrder(order);
+      return order;
+    } on AppException catch (e) {
+      _errorMessage = e.message;
+      return null;
+    } catch (e) {
+      _errorMessage = 'Unable to sync payment records: $e';
+      return null;
+    } finally {
+      _isUpdating = false;
+      notifyListeners();
+    }
+  }
+
   void _replaceOrder(MerchantOrder order) {
     final nextOrders = [..._orders];
     final index = nextOrders.indexWhere((item) => item.id == order.id);

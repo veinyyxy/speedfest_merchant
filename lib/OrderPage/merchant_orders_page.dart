@@ -150,8 +150,40 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
-      builder: (_) => MerchantOrderDetailSheet(order: detail),
+      builder: (_) => MerchantOrderDetailSheet(
+        order: detail,
+        onSyncPaymentRecords: _syncPaymentRecords,
+      ),
     );
+  }
+
+  Future<MerchantOrder?> _syncPaymentRecords(MerchantOrder order) async {
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null) return null;
+
+    final ordersProvider = context.read<MerchantOrdersProvider>();
+    final syncedOrder = await ordersProvider.syncPaymentRecords(
+      apiClient: session.apiClient,
+      token: token,
+      orderId: order.id,
+    );
+    if (!mounted) return syncedOrder;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          syncedOrder == null
+              ? ordersProvider.errorMessage ??
+                    'Payment records could not be synced.'
+              : 'Payment records synced for ${order.displayId}.',
+        ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: syncedOrder == null ? Colors.red.shade700 : null,
+      ),
+    );
+
+    return syncedOrder;
   }
 
   @override

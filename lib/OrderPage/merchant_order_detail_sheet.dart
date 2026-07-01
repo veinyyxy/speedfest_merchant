@@ -2,13 +2,50 @@ import 'package:flutter/material.dart';
 
 import '../Models/merchant_order.dart';
 
-class MerchantOrderDetailSheet extends StatelessWidget {
-  const MerchantOrderDetailSheet({super.key, required this.order});
+typedef SyncPaymentRecordsCallback =
+    Future<MerchantOrder?> Function(MerchantOrder order);
+
+class MerchantOrderDetailSheet extends StatefulWidget {
+  const MerchantOrderDetailSheet({
+    super.key,
+    required this.order,
+    this.onSyncPaymentRecords,
+  });
 
   final MerchantOrder order;
+  final SyncPaymentRecordsCallback? onSyncPaymentRecords;
+
+  @override
+  State<MerchantOrderDetailSheet> createState() =>
+      _MerchantOrderDetailSheetState();
+}
+
+class _MerchantOrderDetailSheetState extends State<MerchantOrderDetailSheet> {
+  late MerchantOrder _order;
+  bool _isSyncingPaymentRecords = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _order = widget.order;
+  }
+
+  Future<void> _syncPaymentRecords() async {
+    final callback = widget.onSyncPaymentRecords;
+    if (callback == null || _isSyncingPaymentRecords) return;
+
+    setState(() => _isSyncingPaymentRecords = true);
+    final syncedOrder = await callback(_order);
+    if (!mounted) return;
+    setState(() {
+      if (syncedOrder != null) _order = syncedOrder;
+      _isSyncingPaymentRecords = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final order = _order;
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return SafeArea(
@@ -48,6 +85,29 @@ class MerchantOrderDetailSheet extends StatelessWidget {
             _DetailRow(label: 'Created', value: order.createdAtLabel),
             _DetailRow(label: 'Fulfillment', value: order.fulfillmentLabel),
             _DetailRow(label: 'Payment', value: order.paymentStatusLabel),
+            if (widget.onSyncPaymentRecords != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _isSyncingPaymentRecords
+                      ? null
+                      : _syncPaymentRecords,
+                  icon: _isSyncingPaymentRecords
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.sync_outlined),
+                  label: Text(
+                    _isSyncingPaymentRecords
+                        ? 'Syncing payment records'
+                        : 'Sync payment records',
+                  ),
+                ),
+              ),
+            ],
             _DetailRow(label: 'Customer', value: order.customerName),
             _DetailRow(label: 'Phone', value: order.customerPhone),
             _DetailRow(label: 'Email', value: order.customerEmail),
