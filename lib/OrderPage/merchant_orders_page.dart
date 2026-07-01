@@ -92,30 +92,11 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   }
 
   Future<void> _refundOrder(MerchantOrder order) async {
-    final confirmed = await showDialog<bool>(
+    final request = await showDialog<_RefundRequest>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Refund order?'),
-        content: Text(
-          'This will refund ${order.displayId} through the payment provider and mark the order as refunded.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Keep Order'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.orange.shade800,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Refund'),
-          ),
-        ],
-      ),
+      builder: (_) => _RefundOrderDialog(order: order),
     );
-    if (confirmed != true || !mounted) return;
+    if (request == null || !mounted) return;
 
     final session = context.read<MerchantSessionProvider>();
     final token = session.token;
@@ -126,7 +107,8 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
       apiClient: session.apiClient,
       token: token,
       orderId: order.id,
-      note: 'Merchant refund',
+      amount: request.amount,
+      note: request.note,
     );
     if (!mounted) return;
 
@@ -456,6 +438,12 @@ class _OrderCard extends StatelessWidget {
                     icon: Icons.credit_card_outlined,
                     label: 'Payment: ${order.paymentStatusLabel}',
                   ),
+                if (order.hasRefund)
+                  _InfoPill(
+                    icon: Icons.reply_all_outlined,
+                    label:
+                        'Refunded: ${order.currency} \$${order.refundedAmount.toStringAsFixed(2)}',
+                  ),
               ],
             ),
             if (order.customerPhone.isNotEmpty ||
@@ -558,6 +546,154 @@ class _StatusChip extends StatelessWidget {
   }
 }
 
+class _RefundOrderDialog extends StatefulWidget {
+  const _RefundOrderDialog({required this.order});
+
+  final MerchantOrder order;
+
+  @override
+  State<_RefundOrderDialog> createState() => _RefundOrderDialogState();
+}
+
+class _RefundOrderDialogState extends State<_RefundOrderDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _amountController = TextEditingController();
+  final _noteController = TextEditingController(text: 'Merchant refund');
+  bool _customAmount = false;
+
+  double get _maxAmount {
+    final remaining = widget.order.refundableAmount;
+    if (remaining > 0) return remaining;
+    final fallback = widget.order.totalAmount - widget.order.refundedAmount;
+    return fallback > 0 ? fallback : 0;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _amountController.text = _maxAmount.toStringAsFixed(2);
+  }
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxAmount = _maxAmount;
+    return AlertDialog(
+      title: const Text('Refund order'),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${widget.order.displayId} refundable amount: '
+                '${widget.order.currency} \$${maxAmount.toStringAsFixed(2)}',
+              ),
+              if (widget.order.refundedAmount > 0) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Already refunded: ${widget.order.currency} \$${widget.order.refundedAmount.toStringAsFixed(2)}',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+              ],
+              const SizedBox(height: 12),
+              RadioListTile<bool>(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Refund remaining amount'),
+                value: false,
+                groupValue: _customAmount,
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _customAmount = value);
+                },
+              ),
+              RadioListTile<bool>(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Custom amount'),
+                value: true,
+                groupValue: _customAmount,
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _customAmount = value);
+                },
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _amountController,
+                enabled: _customAmount,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: 'Refund amount',
+                  prefixText: '${widget.order.currency} \$',
+                  border: const OutlineInputBorder(),
+                ),
+                validator: _customAmount
+                    ? (value) => _refundAmountValidator(value, maxAmount)
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _noteController,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Note',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: maxAmount <= 0
+              ? null
+              : () {
+                  final valid = _formKey.currentState?.validate() ?? false;
+                  if (!valid) return;
+                  Navigator.of(context).pop(
+                    _RefundRequest(
+                      amount: _customAmount
+                          ? double.parse(_amountController.text.trim())
+                          : null,
+                      note: _noteController.text.trim().isEmpty
+                          ? 'Merchant refund'
+                          : _noteController.text.trim(),
+                    ),
+                  );
+                },
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.orange.shade800,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Refund'),
+        ),
+      ],
+    );
+  }
+}
+
+class _RefundRequest {
+  const _RefundRequest({required this.amount, required this.note});
+
+  final double? amount;
+  final String note;
+}
+
 class _StateMessage extends StatelessWidget {
   const _StateMessage({
     required this.icon,
@@ -644,6 +780,8 @@ List<_OrderAction> _destructiveActionsFor(MerchantOrder order) {
     case 'on_the_way':
     case 'completed':
     case 'delivered':
+    case 'partially_refunded':
+      if (!order.canRefund) return const [];
       return const [_OrderAction('refunded', 'Refund')];
     default:
       return const [];
@@ -657,6 +795,7 @@ Color _statusColor(String status, Color fallback) {
     case 'pending_payment':
       return Colors.orange.shade800;
     case 'cancelled':
+    case 'partially_refunded':
     case 'refunded':
       return Colors.red.shade700;
     case 'ready':
@@ -681,6 +820,7 @@ const _allStatusFilters = <_OrderFilter>[
   _OrderFilter('delivered', 'Delivered'),
   _OrderFilter('completed', 'Completed'),
   _OrderFilter('cancelled', 'Cancelled'),
+  _OrderFilter('partially_refunded', 'Partially refunded'),
   _OrderFilter('refunded', 'Refunded'),
 ];
 
@@ -694,6 +834,7 @@ const _deliveryStatusFilters = <_OrderFilter>[
   _OrderFilter('on_the_way', 'On the way'),
   _OrderFilter('delivered', 'Delivered'),
   _OrderFilter('cancelled', 'Cancelled'),
+  _OrderFilter('partially_refunded', 'Partially refunded'),
   _OrderFilter('refunded', 'Refunded'),
 ];
 
@@ -706,6 +847,7 @@ const _nonDeliveryStatusFilters = <_OrderFilter>[
   _OrderFilter('ready', 'Ready'),
   _OrderFilter('completed', 'Completed'),
   _OrderFilter('cancelled', 'Cancelled'),
+  _OrderFilter('partially_refunded', 'Partially refunded'),
   _OrderFilter('refunded', 'Refunded'),
 ];
 
@@ -733,4 +875,14 @@ String _humanize(String value) {
         return '${lower[0].toUpperCase()}${lower.substring(1)}';
       })
       .join(' ');
+}
+
+String? _refundAmountValidator(String? value, double maxAmount) {
+  final parsed = double.tryParse(value?.trim() ?? '');
+  if (parsed == null) return 'Enter a valid amount';
+  if (parsed <= 0) return 'Amount must be greater than 0';
+  if (parsed > maxAmount) {
+    return 'Must be at most ${maxAmount.toStringAsFixed(2)}';
+  }
+  return null;
 }

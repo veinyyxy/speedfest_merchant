@@ -125,6 +125,7 @@ class MerchantOrdersProvider with ChangeNotifier {
     required SignedApiClient apiClient,
     required String token,
     required String orderId,
+    double? amount,
     String? note,
   }) async {
     _isUpdating = true;
@@ -133,6 +134,9 @@ class MerchantOrdersProvider with ChangeNotifier {
 
     try {
       final body = <String, dynamic>{'order_id': orderId};
+      if (amount != null) {
+        body['amount'] = double.parse(amount.toStringAsFixed(2));
+      }
       if (note != null && note.trim().isNotEmpty) {
         body['note'] = note.trim();
       }

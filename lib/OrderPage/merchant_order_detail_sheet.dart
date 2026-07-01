@@ -89,6 +89,8 @@ class MerchantOrderDetailSheet extends StatelessWidget {
             ),
             _MoneyRow(label: 'Taxes', value: order.pricing.taxes),
             _MoneyRow(label: 'Tip', value: order.pricing.tipAmount),
+            if (order.refundedAmount > 0)
+              _MoneyRow(label: 'Refunded', value: order.refundedAmount),
             _MoneyRow(label: 'Total', value: order.totalAmount, isTotal: true),
           ],
         ),
@@ -364,6 +366,7 @@ class _StatusChip extends StatelessWidget {
 Color _statusColor(String status, Color fallback) {
   switch (status) {
     case 'cancelled':
+    case 'partially_refunded':
     case 'refunded':
       return Colors.red.shade700;
     case 'ready':

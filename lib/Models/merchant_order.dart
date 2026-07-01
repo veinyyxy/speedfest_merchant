@@ -11,6 +11,8 @@ class MerchantOrder {
     required this.customerPhone,
     required this.customerEmail,
     required this.paymentStatus,
+    required this.refundedAmount,
+    required this.refundableAmount,
     required this.shippingAddress,
     required this.tableNumber,
     required this.pickupLocation,
@@ -31,6 +33,8 @@ class MerchantOrder {
   final String customerPhone;
   final String customerEmail;
   final String paymentStatus;
+  final double refundedAmount;
+  final double refundableAmount;
   final String shippingAddress;
   final String tableNumber;
   final String pickupLocation;
@@ -61,6 +65,8 @@ class MerchantOrder {
       isPendingPayment ? 'Pending payment' : _humanize(status);
   String get displayStatusLabel => statusLabel;
   String get paymentStatusLabel => _humanize(paymentStatus);
+  bool get hasRefund => refundedAmount > 0;
+  bool get canRefund => refundableAmount > 0 && !isPendingPayment;
   bool get isReviewed => review != null;
   String get reviewComment => review?.comment ?? '';
 
@@ -116,6 +122,22 @@ class MerchantOrder {
         'payment_status',
         'paymentStatus',
       ]),
+      refundedAmount: _firstDoubleWithFallback(
+        json,
+        const ['refunded_amount', 'refundedAmount'],
+        fallback: _firstDouble(
+          _asMap(_firstValue(json, const ['payment'])),
+          const ['refunded_amount', 'refundedAmount'],
+        ),
+      ),
+      refundableAmount: _firstDoubleWithFallback(
+        json,
+        const ['refundable_amount', 'refundableAmount'],
+        fallback: _firstDouble(
+          _asMap(_firstValue(json, const ['payment'])),
+          const ['refundable_amount', 'refundableAmount'],
+        ),
+      ),
       shippingAddress: _formatAddress(
         _firstValue(json, const [
           'shipping_address',
@@ -358,6 +380,17 @@ double _firstDouble(Map<String, dynamic> json, List<String> keys) {
   final value = _firstValue(json, keys);
   if (value is num) return value.toDouble();
   return double.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+double _firstDoubleWithFallback(
+  Map<String, dynamic> json,
+  List<String> keys, {
+  required double fallback,
+}) {
+  final value = _firstValue(json, keys);
+  if (value is num) return value.toDouble();
+  final parsed = double.tryParse(value?.toString() ?? '');
+  return parsed ?? fallback;
 }
 
 int _firstInt(
