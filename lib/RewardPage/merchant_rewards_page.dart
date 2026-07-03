@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../Common/merchant_filter_preferences.dart';
 import '../Controller/merchant_rewards_provider.dart';
 import '../Controller/merchant_session_provider.dart';
 import '../Models/merchant_reward.dart';
@@ -23,7 +24,7 @@ class _MerchantRewardsPageState extends State<MerchantRewardsPage> {
     super.didChangeDependencies();
     if (_loaded) return;
     _loaded = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchRewards());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadFiltersAndFetch());
   }
 
   @override
@@ -40,6 +41,40 @@ class _MerchantRewardsPageState extends State<MerchantRewardsPage> {
     await context.read<MerchantRewardsProvider>().fetchRewards(
       apiClient: session.apiClient,
       token: token,
+    );
+  }
+
+  Future<void> _fetchRewardSettings() async {
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null) return;
+
+    await context.read<MerchantRewardsProvider>().fetchRewardSettings(
+      apiClient: session.apiClient,
+      token: token,
+    );
+  }
+
+  Future<void> _loadFiltersAndFetch() async {
+    final statusFilter = await MerchantFilterPreferences.readString(
+      MerchantFilterPreferences.rewardsStatusFilter,
+    );
+    if (!mounted) return;
+
+    setState(() {
+      _statusFilter = _isRewardStatusFilter(statusFilter)
+          ? statusFilter!
+          : 'all';
+    });
+
+    await Future.wait([_fetchRewards(), _fetchRewardSettings()]);
+  }
+
+  Future<void> _setStatusFilter(String status) async {
+    setState(() => _statusFilter = status);
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.rewardsStatusFilter,
+      status,
     );
   }
 
@@ -93,6 +128,39 @@ class _MerchantRewardsPageState extends State<MerchantRewardsPage> {
     }
   }
 
+  Future<void> _editEarnRate() async {
+    final provider = context.read<MerchantRewardsProvider>();
+    final pointsPerCad = await showDialog<double>(
+      context: context,
+      builder: (_) => _EarnRateDialog(pointsPerCad: provider.pointsPerCad),
+    );
+    if (pointsPerCad == null || !mounted) return;
+
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null) return;
+
+    final ok = await provider.updateEarnRate(
+      apiClient: session.apiClient,
+      token: token,
+      pointsPerCad: pointsPerCad,
+    );
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Earn rate updated to ${_formatPointsPerCad(pointsPerCad)} points per CAD.'
+              : provider.settingsErrorMessage ??
+                    'Reward settings could not be updated.',
+        ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: ok ? null : Colors.red.shade700,
+      ),
+    );
+  }
+
   List<MerchantReward> _filteredRewards(List<MerchantReward> rewards) {
     final query = _searchController.text.trim().toLowerCase();
     return rewards
@@ -135,6 +203,12 @@ class _MerchantRewardsPageState extends State<MerchantRewardsPage> {
       ),
       body: Column(
         children: [
+          _EarnRatePanel(
+            pointsPerCad: provider.pointsPerCad,
+            isLoading: provider.isLoadingSettings,
+            isSaving: provider.isSavingSettings,
+            onEdit: _editEarnRate,
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: TextField(
@@ -151,7 +225,7 @@ class _MerchantRewardsPageState extends State<MerchantRewardsPage> {
           ),
           _RewardFilterBar(
             selectedStatus: _statusFilter,
-            onSelected: (status) => setState(() => _statusFilter = status),
+            onSelected: _setStatusFilter,
           ),
           Expanded(
             child: _RewardsBody(
@@ -165,6 +239,164 @@ class _MerchantRewardsPageState extends State<MerchantRewardsPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+String _formatPointsPerCad(double value) {
+  if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+  return value
+      .toStringAsFixed(4)
+      .replaceFirst(RegExp(r'0+$'), '')
+      .replaceFirst(RegExp(r'\.$'), '');
+}
+
+class _EarnRatePanel extends StatelessWidget {
+  const _EarnRatePanel({
+    required this.pointsPerCad,
+    required this.isLoading,
+    required this.isSaving,
+    required this.onEdit,
+  });
+
+  final double pointsPerCad;
+  final bool isLoading;
+  final bool isSaving;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: Theme.of(
+                context,
+              ).colorScheme.primary.withAlpha(28),
+              child: Icon(
+                Icons.currency_exchange_outlined,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Order earn rate',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    isLoading
+                        ? 'Loading earn rate...'
+                        : 'CAD 1 = ${_formatPointsPerCad(pointsPerCad)} points',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: isLoading || isSaving ? null : onEdit,
+              icon: isSaving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.edit_outlined),
+              label: Text(isSaving ? 'Saving' : 'Edit'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EarnRateDialog extends StatefulWidget {
+  const _EarnRateDialog({required this.pointsPerCad});
+
+  final double pointsPerCad;
+
+  @override
+  State<_EarnRateDialog> createState() => _EarnRateDialogState();
+}
+
+class _EarnRateDialogState extends State<_EarnRateDialog> {
+  late final TextEditingController _controller;
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: _formatPointsPerCad(widget.pointsPerCad),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit earn rate'),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          controller: _controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Points per CAD',
+            helperText: 'Example: 0.5 means CAD 2 earns about 1 point.',
+            border: OutlineInputBorder(),
+          ),
+          validator: (value) {
+            final parsed = double.tryParse(value?.trim() ?? '');
+            if (parsed == null || parsed <= 0) {
+              return 'Enter a number greater than 0';
+            }
+            if (parsed < 0.0001) {
+              return 'Enter at least 0.0001';
+            }
+            if (parsed > 10000) {
+              return 'Enter a smaller value';
+            }
+            return null;
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final valid = _formKey.currentState?.validate() ?? false;
+            if (!valid) return;
+            Navigator.of(context).pop(double.parse(_controller.text.trim()));
+          },
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }
@@ -477,4 +709,8 @@ class _StateMessage extends StatelessWidget {
       ],
     );
   }
+}
+
+bool _isRewardStatusFilter(String? value) {
+  return _RewardFilterBar.filters.any((filter) => filter.$1 == value);
 }

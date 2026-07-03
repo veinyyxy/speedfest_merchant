@@ -7,14 +7,22 @@ import 'signed_api_client.dart';
 class MerchantRewardsProvider with ChangeNotifier {
   bool _isLoading = false;
   bool _isSaving = false;
+  bool _isLoadingSettings = false;
+  bool _isSavingSettings = false;
   bool _isUpdating = false;
   String? _errorMessage;
+  String? _settingsErrorMessage;
+  double _pointsPerCad = 10;
   List<MerchantReward> _rewards = const [];
 
   bool get isLoading => _isLoading;
   bool get isSaving => _isSaving;
+  bool get isLoadingSettings => _isLoadingSettings;
+  bool get isSavingSettings => _isSavingSettings;
   bool get isUpdating => _isUpdating;
   String? get errorMessage => _errorMessage;
+  String? get settingsErrorMessage => _settingsErrorMessage;
+  double get pointsPerCad => _pointsPerCad;
   List<MerchantReward> get rewards => _rewards;
 
   Future<void> fetchRewards({
@@ -49,6 +57,63 @@ class MerchantRewardsProvider with ChangeNotifier {
       _errorMessage = 'Unable to load rewards: $e';
     } finally {
       _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> fetchRewardSettings({
+    required SignedApiClient apiClient,
+    required String token,
+  }) async {
+    _isLoadingSettings = true;
+    _settingsErrorMessage = null;
+    notifyListeners();
+
+    try {
+      final rawResponse = await apiClient.get(
+        MerchantServiceConfig.merchantRewardSettingsPath,
+        token: token,
+      );
+      final response = Map<String, dynamic>.from(rawResponse as Map);
+      _readRewardSettings(response);
+    } on AppException catch (e) {
+      _settingsErrorMessage = e.message;
+    } catch (e) {
+      _settingsErrorMessage = 'Unable to load reward settings: $e';
+    } finally {
+      _isLoadingSettings = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> updateEarnRate({
+    required SignedApiClient apiClient,
+    required String token,
+    required double pointsPerCad,
+  }) async {
+    _isSavingSettings = true;
+    _settingsErrorMessage = null;
+    notifyListeners();
+
+    try {
+      final rawResponse = await apiClient.post(
+        MerchantServiceConfig.merchantRewardSettingsPath,
+        {
+          'earn_rate': {'points_per_cad': pointsPerCad},
+        },
+        token: token,
+      );
+      final response = Map<String, dynamic>.from(rawResponse as Map);
+      _readRewardSettings(response);
+      return true;
+    } on AppException catch (e) {
+      _settingsErrorMessage = e.message;
+      return false;
+    } catch (e) {
+      _settingsErrorMessage = 'Unable to update reward settings: $e';
+      return false;
+    } finally {
+      _isSavingSettings = false;
       notifyListeners();
     }
   }
@@ -155,6 +220,21 @@ class MerchantRewardsProvider with ChangeNotifier {
 
     _rewards = [reward, ..._rewards.where((item) => item.id != reward.id)]
       ..sort(_compareRewards);
+  }
+
+  void _readRewardSettings(Map<String, dynamic> response) {
+    final settings = response['settings'];
+    if (settings is! Map) return;
+    final earnRate = settings['earn_rate'] ?? settings['earnRate'];
+    if (earnRate is! Map) return;
+    final rawPoints =
+        earnRate['points_per_cad'] ??
+        earnRate['pointsPerCad'] ??
+        earnRate['rate'];
+    final parsed = double.tryParse(rawPoints?.toString() ?? '');
+    if (parsed != null && parsed > 0) {
+      _pointsPerCad = parsed;
+    }
   }
 }
 

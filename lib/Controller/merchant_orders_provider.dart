@@ -21,6 +21,8 @@ class MerchantOrdersProvider with ChangeNotifier {
     required SignedApiClient apiClient,
     required String token,
     String? status,
+    DateTime? dateFrom,
+    DateTime? dateTo,
   }) async {
     _isLoading = true;
     _selectedStatus = status;
@@ -31,6 +33,8 @@ class MerchantOrdersProvider with ChangeNotifier {
       final query = <String, dynamic>{
         'limit': 100,
         if (status != null && status.isNotEmpty) 'status': status,
+        if (dateFrom != null) 'date_from': dateFrom.toUtc().toIso8601String(),
+        if (dateTo != null) 'date_to': dateTo.toUtc().toIso8601String(),
       };
       final rawResponse = await apiClient.get(
         MerchantServiceConfig.merchantOrdersPath,

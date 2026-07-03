@@ -65,6 +65,9 @@ class MerchantOrder {
       isPendingPayment ? 'Pending payment' : _humanize(status);
   String get displayStatusLabel => statusLabel;
   String get paymentStatusLabel => _humanize(paymentStatus);
+  String get paymentDetailStatusLabel => paymentStatusLabel.isEmpty
+      ? 'Not started (no payment record)'
+      : paymentStatusLabel;
   bool get hasRefund => refundedAmount > 0;
   bool get canRefund => refundableAmount > 0 && !isPendingPayment;
   bool get isReviewed => review != null;

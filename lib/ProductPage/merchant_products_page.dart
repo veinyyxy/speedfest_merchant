@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../Common/merchant_filter_preferences.dart';
 import '../Common/merchant_service_config.dart';
 import '../Controller/merchant_products_provider.dart';
 import '../Controller/merchant_session_provider.dart';
@@ -25,7 +26,7 @@ class _MerchantProductsPageState extends State<MerchantProductsPage> {
     super.didChangeDependencies();
     if (_loaded) return;
     _loaded = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchProducts());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadFiltersAndFetch());
   }
 
   @override
@@ -42,6 +43,41 @@ class _MerchantProductsPageState extends State<MerchantProductsPage> {
     await context.read<MerchantProductsProvider>().fetchProducts(
       apiClient: session.apiClient,
       token: token,
+    );
+  }
+
+  Future<void> _loadFiltersAndFetch() async {
+    final statusFilter = await MerchantFilterPreferences.readString(
+      MerchantFilterPreferences.productsStatusFilter,
+    );
+    final typeFilter = await MerchantFilterPreferences.readString(
+      MerchantFilterPreferences.productsTypeFilter,
+    );
+    if (!mounted) return;
+
+    setState(() {
+      _statusFilter = _isProductStatusFilter(statusFilter)
+          ? statusFilter!
+          : 'all';
+      _typeFilter = _isProductTypeFilter(typeFilter) ? typeFilter! : 'all';
+    });
+
+    await _fetchProducts();
+  }
+
+  Future<void> _setStatusFilter(String status) async {
+    setState(() => _statusFilter = status);
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.productsStatusFilter,
+      status,
+    );
+  }
+
+  Future<void> _setTypeFilter(String type) async {
+    setState(() => _typeFilter = type);
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.productsTypeFilter,
+      type,
     );
   }
 
@@ -192,15 +228,11 @@ class _MerchantProductsPageState extends State<MerchantProductsPage> {
           ),
           _ProductFilterBar(
             selectedStatus: _statusFilter,
-            onSelected: (status) {
-              setState(() => _statusFilter = status);
-            },
+            onSelected: _setStatusFilter,
           ),
           _ProductTypeFilterBar(
             selectedType: _typeFilter,
-            onSelected: (type) {
-              setState(() => _typeFilter = type);
-            },
+            onSelected: _setTypeFilter,
           ),
           Expanded(
             child: _ProductsBody(
@@ -680,6 +712,14 @@ String _resolveImageUrl(String imageUrl) {
     return trimmed;
   }
   return '${MerchantServiceConfig.baseUrl}$trimmed';
+}
+
+bool _isProductStatusFilter(String? value) {
+  return _ProductFilterBar.filters.any((filter) => filter.$1 == value);
+}
+
+bool _isProductTypeFilter(String? value) {
+  return _ProductTypeFilterBar.filters.any((filter) => filter.$1 == value);
 }
 
 String _humanize(String value) {

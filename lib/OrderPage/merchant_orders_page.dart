@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../Common/merchant_filter_preferences.dart';
 import '../Controller/merchant_orders_provider.dart';
 import '../Controller/merchant_session_provider.dart';
 import '../Models/merchant_order.dart';
@@ -17,13 +18,69 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   bool _loaded = false;
   String _fulfillmentFilter = 'all';
   String _statusFilter = 'all';
+  DateTimeRange? _dateRange = _todayDateRange();
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_loaded) return;
     _loaded = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchOrders());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadFiltersAndFetch());
+  }
+
+  Future<void> _loadFiltersAndFetch() async {
+    final fulfillmentFilter = await MerchantFilterPreferences.readString(
+      MerchantFilterPreferences.ordersFulfillmentFilter,
+    );
+    final statusFilter = await MerchantFilterPreferences.readString(
+      MerchantFilterPreferences.ordersStatusFilter,
+    );
+    final dateRange = await _loadSavedDateRange();
+    if (!mounted) return;
+
+    final nextFulfillment = _isFulfillmentFilter(fulfillmentFilter)
+        ? fulfillmentFilter!
+        : 'all';
+    final nextStatus =
+        statusFilter != null &&
+            _statusAllowedForFulfillment(nextFulfillment, statusFilter)
+        ? statusFilter
+        : 'all';
+
+    setState(() {
+      _fulfillmentFilter = nextFulfillment;
+      _statusFilter = nextStatus;
+      _dateRange = dateRange;
+    });
+
+    await _fetchOrders();
+  }
+
+  Future<DateTimeRange?> _loadSavedDateRange() async {
+    final dateFilter = await MerchantFilterPreferences.readString(
+      MerchantFilterPreferences.ordersDateFilter,
+    );
+    if (dateFilter == 'all') return null;
+
+    if (dateFilter == 'custom') {
+      final startText = await MerchantFilterPreferences.readString(
+        MerchantFilterPreferences.ordersDateStart,
+      );
+      final endText = await MerchantFilterPreferences.readString(
+        MerchantFilterPreferences.ordersDateEnd,
+      );
+      final start = DateTime.tryParse(startText ?? '');
+      final end = DateTime.tryParse(endText ?? '');
+      if (start != null && end != null && !end.isBefore(start)) {
+        return DateTimeRange(start: _startOfDay(start), end: _endOfDay(end));
+      }
+      return _todayDateRange();
+    }
+
+    final shortcut = _dateShortcutByKey(dateFilter ?? 'today');
+    return shortcut == null
+        ? _todayDateRange()
+        : _dateRangeForShortcut(shortcut);
   }
 
   Future<void> _fetchOrders() async {
@@ -34,6 +91,93 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     await context.read<MerchantOrdersProvider>().fetchOrders(
       apiClient: session.apiClient,
       token: token,
+      dateFrom: _dateRange?.start,
+      dateTo: _dateRange?.end,
+    );
+  }
+
+  Future<void> _selectDateRange() async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 1, 12, 31),
+      initialDateRange: DateTimeRange(
+        start: _startOfDay(_dateRange?.start ?? now),
+        end: _startOfDay(_dateRange?.end ?? now),
+      ),
+    );
+    if (picked == null || !mounted) return;
+
+    setState(() {
+      _dateRange = _dateRangeForCustom(picked);
+    });
+    await _saveCustomDateRange(_dateRange);
+    await _fetchOrders();
+  }
+
+  Future<void> _selectDateShortcut(_DateShortcut shortcut) async {
+    setState(() => _dateRange = _dateRangeForShortcut(shortcut));
+    await _saveDateShortcut(shortcut);
+    await _fetchOrders();
+  }
+
+  Future<void> _setFulfillmentFilter(String type) async {
+    setState(() {
+      _fulfillmentFilter = type;
+      if (!_statusAllowedForFulfillment(type, _statusFilter)) {
+        _statusFilter = 'all';
+      }
+    });
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.ordersFulfillmentFilter,
+      _fulfillmentFilter,
+    );
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.ordersStatusFilter,
+      _statusFilter,
+    );
+  }
+
+  Future<void> _setStatusFilter(String status) async {
+    setState(() => _statusFilter = status);
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.ordersStatusFilter,
+      status,
+    );
+  }
+
+  Future<void> _saveDateShortcut(_DateShortcut shortcut) async {
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.ordersDateFilter,
+      shortcut.key,
+    );
+    if (shortcut.days == null) {
+      await MerchantFilterPreferences.remove(
+        MerchantFilterPreferences.ordersDateStart,
+      );
+      await MerchantFilterPreferences.remove(
+        MerchantFilterPreferences.ordersDateEnd,
+      );
+    }
+  }
+
+  Future<void> _saveCustomDateRange(DateTimeRange? range) async {
+    if (range == null) {
+      await _saveDateShortcut(_dateShortcuts.first);
+      return;
+    }
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.ordersDateFilter,
+      'custom',
+    );
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.ordersDateStart,
+      range.start.toIso8601String(),
+    );
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.ordersDateEnd,
+      range.end.toIso8601String(),
     );
   }
 
@@ -205,28 +349,26 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
       ),
       body: Column(
         children: [
+          _DateRangeFilterBar(
+            selectedDateShortcut: _shortcutForRange(_dateRange),
+            customDateLabel: _dateRangeLabel(_dateRange),
+            onSelectDateShortcut: _selectDateShortcut,
+            onSelectCustomDate: _selectDateRange,
+          ),
           _FulfillmentFilterBar(
             selectedType: _fulfillmentFilter,
-            onSelected: (type) {
-              setState(() {
-                _fulfillmentFilter = type;
-                if (!_statusAllowedForFulfillment(type, _statusFilter)) {
-                  _statusFilter = 'all';
-                }
-              });
-            },
+            onSelected: _setFulfillmentFilter,
           ),
           _StatusFilterBar(
             filters: statusFilters,
             selectedStatus: _statusFilter,
-            onSelected: (status) {
-              setState(() => _statusFilter = status);
-            },
+            onSelected: _setStatusFilter,
           ),
           Expanded(
             child: _OrdersBody(
               provider: provider,
               orders: orders,
+              dateRangeLabel: _dateRangeLabel(_dateRange),
               onRefresh: _fetchOrders,
               onOpenDetail: _showDetail,
               onUpdateStatus: _updateStatus,
@@ -235,6 +377,40 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _DateRangeFilterBar extends StatelessWidget {
+  const _DateRangeFilterBar({
+    required this.selectedDateShortcut,
+    required this.customDateLabel,
+    required this.onSelectDateShortcut,
+    required this.onSelectCustomDate,
+  });
+
+  final _DateShortcut? selectedDateShortcut;
+  final String customDateLabel;
+  final ValueChanged<_DateShortcut> onSelectDateShortcut;
+  final VoidCallback onSelectCustomDate;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FilterRow(
+      label: 'Date',
+      children: [
+        for (final shortcut in _dateShortcuts)
+          ChoiceChip(
+            label: Text(shortcut.label),
+            selected: selectedDateShortcut?.key == shortcut.key,
+            onSelected: (_) => onSelectDateShortcut(shortcut),
+          ),
+        _CustomDateChip(
+          selected: selectedDateShortcut == null,
+          label: customDateLabel,
+          onPressed: onSelectCustomDate,
+        ),
+      ],
     );
   }
 }
@@ -248,40 +424,20 @@ class _FulfillmentFilterBar extends StatelessWidget {
   final String selectedType;
   final ValueChanged<String> onSelected;
 
-  static const filters = <_FulfillmentFilter>[
-    _FulfillmentFilter('all', 'All'),
-    _FulfillmentFilter('delivery', 'Delivery'),
-    _FulfillmentFilter('takeout', 'Takeout'),
-    _FulfillmentFilter('dine_in', 'Dine-in'),
-  ];
-
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 54,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        scrollDirection: Axis.horizontal,
-        itemCount: filters.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final filter = filters[index];
-          return ChoiceChip(
+    return _FilterRow(
+      label: 'Type',
+      children: [
+        for (final filter in _fulfillmentFilters)
+          ChoiceChip(
             label: Text(filter.label),
             selected: selectedType == filter.type,
             onSelected: (_) => onSelected(filter.type),
-          );
-        },
-      ),
+          ),
+      ],
     );
   }
-}
-
-class _FulfillmentFilter {
-  const _FulfillmentFilter(this.type, this.label);
-
-  final String type;
-  final String label;
 }
 
 class _StatusFilterBar extends StatelessWidget {
@@ -297,25 +453,104 @@ class _StatusFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 54,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        scrollDirection: Axis.horizontal,
-        itemCount: filters.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final filter = filters[index];
-          return ChoiceChip(
+    return _FilterRow(
+      label: 'Status',
+      children: [
+        for (final filter in filters)
+          ChoiceChip(
             label: Text(filter.label),
             selected: selectedStatus == filter.status,
             onSelected: (_) => onSelected(filter.status),
-          );
-        },
+          ),
+      ],
+    );
+  }
+}
+
+class _FilterRow extends StatelessWidget {
+  const _FilterRow({required this.label, required this.children});
+
+  final String label;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 54,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 72,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(0, 8, 16, 8),
+              scrollDirection: Axis.horizontal,
+              itemCount: children.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, index) => children[index],
+            ),
+          ),
+        ],
       ),
     );
   }
 }
+
+class _CustomDateChip extends StatelessWidget {
+  const _CustomDateChip({
+    required this.selected,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final bool selected;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionChip(
+      avatar: Icon(
+        Icons.calendar_month_outlined,
+        size: 18,
+        color: selected ? Theme.of(context).colorScheme.primary : null,
+      ),
+      label: Text(selected ? label : 'Custom'),
+      side: selected
+          ? BorderSide(color: Theme.of(context).colorScheme.primary)
+          : null,
+      onPressed: onPressed,
+    );
+  }
+}
+
+class _FulfillmentFilter {
+  const _FulfillmentFilter(this.type, this.label);
+
+  final String type;
+  final String label;
+}
+
+const _fulfillmentFilters = <_FulfillmentFilter>[
+  _FulfillmentFilter('all', 'All'),
+  _FulfillmentFilter('delivery', 'Delivery'),
+  _FulfillmentFilter('takeout', 'Takeout'),
+  _FulfillmentFilter('dine_in', 'Dine-in'),
+];
 
 class _OrderFilter {
   const _OrderFilter(this.status, this.label);
@@ -324,10 +559,29 @@ class _OrderFilter {
   final String label;
 }
 
+class _DateShortcut {
+  const _DateShortcut(this.key, this.label, this.days);
+
+  final String key;
+  final String label;
+  final int? days;
+}
+
+const _dateShortcuts = <_DateShortcut>[
+  _DateShortcut('all', 'All', null),
+  _DateShortcut('today', 'Today', 1),
+  _DateShortcut('three_days', '3 days', 3),
+  _DateShortcut('one_week', '1 week', 7),
+  _DateShortcut('one_month', '1 month', 30),
+  _DateShortcut('three_months', '3 months', 90),
+  _DateShortcut('six_months', '6 months', 180),
+];
+
 class _OrdersBody extends StatelessWidget {
   const _OrdersBody({
     required this.provider,
     required this.orders,
+    required this.dateRangeLabel,
     required this.onRefresh,
     required this.onOpenDetail,
     required this.onUpdateStatus,
@@ -336,6 +590,7 @@ class _OrdersBody extends StatelessWidget {
 
   final MerchantOrdersProvider provider;
   final List<MerchantOrder> orders;
+  final String dateRangeLabel;
   final Future<void> Function() onRefresh;
   final ValueChanged<MerchantOrder> onOpenDetail;
   final void Function(MerchantOrder order, String status) onUpdateStatus;
@@ -360,7 +615,7 @@ class _OrdersBody extends StatelessWidget {
       return _StateMessage(
         icon: Icons.receipt_long_outlined,
         title: 'No orders here',
-        message: 'New customer orders will appear in this workspace.',
+        message: 'No orders were found for $dateRangeLabel.',
         onPressed: onRefresh,
       );
     }
@@ -369,7 +624,7 @@ class _OrdersBody extends StatelessWidget {
       return _StateMessage(
         icon: Icons.filter_list_off_outlined,
         title: 'No matching orders',
-        message: 'Try another order type or status filter.',
+        message: 'Try another order type, status, or date range.',
         onPressed: onRefresh,
       );
     }
@@ -465,11 +720,10 @@ class _OrderCard extends StatelessWidget {
                   label:
                       '${order.currency} \$${order.totalAmount.toStringAsFixed(2)}',
                 ),
-                if (order.paymentStatusLabel.isNotEmpty)
-                  _InfoPill(
-                    icon: Icons.credit_card_outlined,
-                    label: 'Payment: ${order.paymentStatusLabel}',
-                  ),
+                _InfoPill(
+                  icon: Icons.credit_card_outlined,
+                  label: order.paymentDetailStatusLabel,
+                ),
                 if (order.hasRefund)
                   _InfoPill(
                     icon: Icons.reply_all_outlined,
@@ -895,6 +1149,102 @@ bool _statusAllowedForFulfillment(String fulfillmentType, String status) {
   return _statusFiltersForFulfillment(
     fulfillmentType,
   ).any((filter) => filter.status == status);
+}
+
+bool _isFulfillmentFilter(String? value) {
+  return _fulfillmentFilters.any((filter) => filter.type == value);
+}
+
+DateTimeRange _todayDateRange() {
+  final now = DateTime.now();
+  return DateTimeRange(start: _startOfDay(now), end: _endOfDay(now));
+}
+
+DateTimeRange? _dateRangeForShortcut(_DateShortcut shortcut) {
+  final days = shortcut.days;
+  if (days == null) return null;
+
+  final today = DateTime.now();
+  final end = _endOfDay(today);
+  final start = _startOfDay(today.subtract(Duration(days: days - 1)));
+  return DateTimeRange(start: start, end: end);
+}
+
+_DateShortcut? _dateShortcutByKey(String key) {
+  for (final shortcut in _dateShortcuts) {
+    if (shortcut.key == key) return shortcut;
+  }
+  return null;
+}
+
+DateTimeRange _dateRangeForCustom(DateTimeRange picked) {
+  return DateTimeRange(
+    start: _startOfDay(picked.start),
+    end: _endOfDay(picked.end),
+  );
+}
+
+DateTime _startOfDay(DateTime date) {
+  return DateTime(date.year, date.month, date.day);
+}
+
+DateTime _endOfDay(DateTime date) {
+  return DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
+}
+
+bool _isSameDay(DateTime left, DateTime right) {
+  return left.year == right.year &&
+      left.month == right.month &&
+      left.day == right.day;
+}
+
+bool _isTodayRange(DateTimeRange range) {
+  final today = DateTime.now();
+  return _isSameDay(range.start, today) && _isSameDay(range.end, today);
+}
+
+_DateShortcut? _shortcutForRange(DateTimeRange? range) {
+  if (range == null) return _dateShortcuts.first;
+
+  for (final shortcut in _dateShortcuts) {
+    if (shortcut.days == null) continue;
+    final shortcutRange = _dateRangeForShortcut(shortcut);
+    if (shortcutRange == null) continue;
+    if (_isSameDay(range.start, shortcutRange.start) &&
+        _isSameDay(range.end, shortcutRange.end)) {
+      return shortcut;
+    }
+  }
+
+  return null;
+}
+
+String _dateRangeLabel(DateTimeRange? range) {
+  if (range == null) return 'All dates';
+
+  final startLabel = _formatDate(range.start);
+  if (_isSameDay(range.start, range.end)) {
+    return _isTodayRange(range) ? 'Today - $startLabel' : startLabel;
+  }
+  return '$startLabel - ${_formatDate(range.end)}';
+}
+
+String _formatDate(DateTime date) {
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${months[date.month - 1]} ${date.day}, ${date.year}';
 }
 
 String _humanize(String value) {

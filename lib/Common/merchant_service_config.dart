@@ -38,6 +38,7 @@ class MerchantServiceConfig {
       '/api/merchant/products/menu-visibility/update';
   static const merchantImageUploadPath = '/api/merchant/assets/images/upload';
   static const merchantRewardsPath = '/api/merchant/rewards';
+  static const merchantRewardSettingsPath = '/api/merchant/rewards/settings';
   static const merchantRewardCreatePath = '/api/merchant/rewards/create';
   static const merchantRewardUpdatePath = '/api/merchant/rewards/update';
   static const merchantRewardStatusPath = '/api/merchant/rewards/status';

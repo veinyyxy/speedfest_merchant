@@ -85,7 +85,7 @@ class _MerchantOrderDetailSheetState extends State<MerchantOrderDetailSheet> {
             _DetailRow(label: 'Created', value: order.createdAtLabel),
             _DetailRow(label: 'Fulfillment', value: order.fulfillmentLabel),
             _PaymentDetailRow(
-              value: order.paymentStatusLabel,
+              value: order.paymentDetailStatusLabel,
               isSyncing: _isSyncingPaymentRecords,
               onSync: widget.onSyncPaymentRecords == null
                   ? null
