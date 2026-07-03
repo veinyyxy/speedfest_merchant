@@ -84,30 +84,13 @@ class _MerchantOrderDetailSheetState extends State<MerchantOrderDetailSheet> {
             const SizedBox(height: 18),
             _DetailRow(label: 'Created', value: order.createdAtLabel),
             _DetailRow(label: 'Fulfillment', value: order.fulfillmentLabel),
-            _DetailRow(label: 'Payment', value: order.paymentStatusLabel),
-            if (widget.onSyncPaymentRecords != null) ...[
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: OutlinedButton.icon(
-                  onPressed: _isSyncingPaymentRecords
-                      ? null
-                      : _syncPaymentRecords,
-                  icon: _isSyncingPaymentRecords
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.sync_outlined),
-                  label: Text(
-                    _isSyncingPaymentRecords
-                        ? 'Syncing payment records'
-                        : 'Sync payment records',
-                  ),
-                ),
-              ),
-            ],
+            _PaymentDetailRow(
+              value: order.paymentStatusLabel,
+              isSyncing: _isSyncingPaymentRecords,
+              onSync: widget.onSyncPaymentRecords == null
+                  ? null
+                  : _syncPaymentRecords,
+            ),
             _DetailRow(label: 'Customer', value: order.customerName),
             _DetailRow(label: 'Phone', value: order.customerPhone),
             _DetailRow(label: 'Email', value: order.customerEmail),
@@ -322,6 +305,72 @@ class _ReadOnlyStarRating extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _PaymentDetailRow extends StatelessWidget {
+  const _PaymentDetailRow({
+    required this.value,
+    required this.isSyncing,
+    required this.onSync,
+  });
+
+  final String value;
+  final bool isSyncing;
+  final VoidCallback? onSync;
+
+  @override
+  Widget build(BuildContext context) {
+    if (value.trim().isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 104,
+            child: Text(
+              'Payment',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+          ),
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                if (onSync != null)
+                  OutlinedButton.icon(
+                    onPressed: isSyncing ? null : onSync,
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    icon: isSyncing
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.sync_outlined, size: 16),
+                    label: Text(isSyncing ? 'Syncing records' : 'Sync records'),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
