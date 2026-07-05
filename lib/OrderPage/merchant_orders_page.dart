@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../Common/merchant_filter_preferences.dart';
+import '../Common/merchant_navigation_intent.dart';
 import '../Controller/merchant_orders_provider.dart';
 import '../Controller/merchant_session_provider.dart';
 import '../Models/merchant_order.dart';
@@ -19,6 +20,27 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   String _fulfillmentFilter = 'all';
   String _statusFilter = 'all';
   DateTimeRange? _dateRange = _todayDateRange();
+  late final VoidCallback _ordersRefreshListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _ordersRefreshListener = () {
+      if (!mounted) return;
+      _fetchOrders();
+    };
+    MerchantNavigationIntent.ordersRefreshTick.addListener(
+      _ordersRefreshListener,
+    );
+  }
+
+  @override
+  void dispose() {
+    MerchantNavigationIntent.ordersRefreshTick.removeListener(
+      _ordersRefreshListener,
+    );
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {

@@ -1,0 +1,285 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
+
+import '../Common/merchant_firebase_config.dart';
+import '../Common/merchant_navigation_intent.dart';
+import '../Common/merchant_service_config.dart';
+import 'signed_api_client.dart';
+
+@pragma('vm:entry-point')
+Future<void> merchantFirebaseMessagingBackgroundHandler(
+  RemoteMessage message,
+) async {
+  try {
+    if (Firebase.apps.isEmpty) {
+      final options = await MerchantFirebaseConfig.loadOptions();
+      if (options == null) {
+        await Firebase.initializeApp();
+      } else {
+        await Firebase.initializeApp(options: options);
+      }
+    }
+  } catch (_) {
+    // Background handlers must never crash the app isolate.
+  }
+}
+
+class MerchantNotificationService {
+  MerchantNotificationService._();
+
+  static final instance = MerchantNotificationService._();
+
+  bool _firebaseReady = false;
+  bool _listenersAttached = false;
+  bool _tokenRefreshAttached = false;
+  SignedApiClient? _apiClient;
+  String? _authToken;
+  String? _lastRegisteredToken;
+
+  Future<MerchantNotificationRegistrationResult> registerForMerchant({
+    required SignedApiClient apiClient,
+    required String token,
+  }) async {
+    if (token.trim().isEmpty) {
+      return const MerchantNotificationRegistrationResult(
+        success: false,
+        message: 'Merchant session is not available.',
+      );
+    }
+    _apiClient = apiClient;
+    _authToken = token;
+
+    final ready = await _ensureFirebaseReady();
+    if (!ready) {
+      return const MerchantNotificationRegistrationResult(
+        success: false,
+        message:
+            'Firebase Web config is missing. Check web/firebase-config.json or MERCHANT_FIREBASE_* dart-defines.',
+      );
+    }
+    final supported = await _isMessagingSupported();
+    if (!supported) {
+      return const MerchantNotificationRegistrationResult(
+        success: false,
+        message:
+            'Firebase messaging is not supported in this browser or origin. Use localhost or HTTPS.',
+      );
+    }
+
+    final permission = await _requestPermission();
+    if (permission == AuthorizationStatus.denied) {
+      return const MerchantNotificationRegistrationResult(
+        success: false,
+        message: 'Browser notification permission is denied.',
+      );
+    }
+    _attachMessageListeners();
+
+    final fcmTokenResult = await _readFcmToken();
+    if (fcmTokenResult.token == null || fcmTokenResult.token!.isEmpty) {
+      return MerchantNotificationRegistrationResult(
+        success: false,
+        message:
+            fcmTokenResult.errorMessage ??
+            'Unable to get a Firebase messaging token.',
+      );
+    }
+    final registered = await _registerToken(
+      apiClient: apiClient,
+      token: token,
+      fcmToken: fcmTokenResult.token!,
+    );
+    if (!registered) {
+      return const MerchantNotificationRegistrationResult(
+        success: false,
+        message: 'Unable to register notification token with the server.',
+      );
+    }
+
+    _attachTokenRefreshListener();
+    return const MerchantNotificationRegistrationResult(
+      success: true,
+      message: 'Notifications are enabled for this browser.',
+    );
+  }
+
+  Future<void> deactivateForMerchant({
+    required SignedApiClient apiClient,
+    required String token,
+  }) async {
+    final fcmToken = _lastRegisteredToken;
+    if (token.trim().isEmpty || fcmToken == null || fcmToken.isEmpty) return;
+
+    try {
+      await apiClient.post(
+        MerchantServiceConfig.merchantDeviceTokenDeactivatePath,
+        {'fcm_token': fcmToken, 'platform': _platformName},
+        token: token,
+      );
+    } catch (err) {
+      debugPrint('Unable to deactivate merchant FCM token: $err');
+    }
+  }
+
+  Future<bool> _ensureFirebaseReady() async {
+    if (_firebaseReady) return true;
+
+    try {
+      if (Firebase.apps.isEmpty) {
+        final options = await MerchantFirebaseConfig.loadOptions();
+        if (kIsWeb && options == null) {
+          debugPrint(
+            'Merchant notifications are disabled: Firebase web config was not found.',
+          );
+          return false;
+        }
+        if (options == null) {
+          await Firebase.initializeApp();
+        } else {
+          await Firebase.initializeApp(options: options);
+        }
+      }
+      _firebaseReady = true;
+      return true;
+    } catch (err) {
+      debugPrint('Merchant notifications are disabled: $err');
+      return false;
+    }
+  }
+
+  Future<bool> _isMessagingSupported() async {
+    try {
+      return FirebaseMessaging.instance.isSupported();
+    } catch (err) {
+      debugPrint('Unable to check Firebase messaging support: $err');
+      return false;
+    }
+  }
+
+  Future<AuthorizationStatus> _requestPermission() async {
+    try {
+      final settings = await FirebaseMessaging.instance.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      return settings.authorizationStatus;
+    } catch (err) {
+      debugPrint('Unable to request merchant notification permission: $err');
+      return AuthorizationStatus.denied;
+    }
+  }
+
+  Future<_FcmTokenResult> _readFcmToken() async {
+    try {
+      if (kIsWeb) {
+        final webVapidKey = await MerchantFirebaseConfig.loadWebVapidKey();
+        if (webVapidKey.isEmpty) {
+          return const _FcmTokenResult(
+            errorMessage:
+                'MERCHANT_FIREBASE_WEB_VAPID_KEY is not configured.',
+          );
+        }
+        final token = await FirebaseMessaging.instance.getToken(
+          vapidKey: webVapidKey,
+          serviceWorkerScriptPath: '/firebase-messaging-sw.js',
+        );
+        return _FcmTokenResult(token: token);
+      }
+
+      final token = await FirebaseMessaging.instance.getToken();
+      return _FcmTokenResult(token: token);
+    } catch (err) {
+      debugPrint('Unable to read merchant FCM token: $err');
+      return _FcmTokenResult(errorMessage: 'Unable to get FCM token: $err');
+    }
+  }
+
+  Future<bool> _registerToken({
+    required SignedApiClient apiClient,
+    required String token,
+    required String fcmToken,
+  }) async {
+    if (fcmToken.trim().isEmpty) return false;
+
+    try {
+      await apiClient.post(MerchantServiceConfig.merchantDeviceTokenPath, {
+        'fcm_token': fcmToken,
+        'platform': _platformName,
+        'metadata': {'app': 'speedfeast_merchant'},
+      }, token: token);
+      _lastRegisteredToken = fcmToken;
+      return true;
+    } catch (err) {
+      debugPrint('Unable to register merchant FCM token: $err');
+      return false;
+    }
+  }
+
+  void _attachMessageListeners() {
+    if (_listenersAttached) return;
+    _listenersAttached = true;
+
+    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
+    FirebaseMessaging.instance.getInitialMessage().then((message) {
+      if (message != null) _handleNotificationTap(message);
+    });
+  }
+
+  void _attachTokenRefreshListener() {
+    if (_tokenRefreshAttached) return;
+    _tokenRefreshAttached = true;
+
+    FirebaseMessaging.instance.onTokenRefresh.listen((nextToken) {
+      final apiClient = _apiClient;
+      final token = _authToken;
+      if (apiClient == null || token == null || token.isEmpty) return;
+      _registerToken(apiClient: apiClient, token: token, fcmToken: nextToken);
+    });
+  }
+
+  void _handleNotificationTap(RemoteMessage message) {
+    final type = message.data['type']?.toString();
+    if (type == 'new_paid_order') {
+      MerchantNavigationIntent.openOrders();
+    }
+  }
+
+  void _handleForegroundMessage(RemoteMessage message) {
+    final type = message.data['type']?.toString();
+    if (type == 'new_paid_order') {
+      MerchantNavigationIntent.openOrders();
+    }
+  }
+
+  String get _platformName {
+    if (kIsWeb) return 'web';
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android => 'android',
+      TargetPlatform.iOS => 'ios',
+      TargetPlatform.macOS => 'macos',
+      TargetPlatform.windows => 'windows',
+      TargetPlatform.linux => 'linux',
+      TargetPlatform.fuchsia => 'unknown',
+    };
+  }
+}
+
+class MerchantNotificationRegistrationResult {
+  const MerchantNotificationRegistrationResult({
+    required this.success,
+    required this.message,
+  });
+
+  final bool success;
+  final String message;
+}
+
+class _FcmTokenResult {
+  const _FcmTokenResult({this.token, this.errorMessage});
+
+  final String? token;
+  final String? errorMessage;
+}

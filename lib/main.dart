@@ -1,7 +1,9 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'Controller/merchant_orders_provider.dart';
+import 'Controller/merchant_notification_service.dart';
 import 'Controller/merchant_products_provider.dart';
 import 'Controller/merchant_rewards_provider.dart';
 import 'Controller/merchant_settings_provider.dart';
@@ -10,6 +12,11 @@ import 'HomePage/merchant_shell_page.dart';
 import 'LoginPage/merchant_login_page.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  FirebaseMessaging.onBackgroundMessage(
+    merchantFirebaseMessagingBackgroundHandler,
+  );
+
   runApp(
     MultiProvider(
       providers: [

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../Common/merchant_service_config.dart';
 import '../Models/merchant_user.dart';
+import 'merchant_notification_service.dart';
 import 'signed_api_client.dart';
 
 class MerchantSessionProvider with ChangeNotifier {
@@ -55,6 +56,14 @@ class MerchantSessionProvider with ChangeNotifier {
       final userMap = Map<String, dynamic>.from(response['merchant_user']);
       _merchantUser = MerchantUser.fromJson(userMap);
 
+      final token = _token;
+      if (token != null && token.isNotEmpty) {
+        await MerchantNotificationService.instance.registerForMerchant(
+          apiClient: apiClient,
+          token: token,
+        );
+      }
+
       return true;
     } on AppException catch (e) {
       _errorMessage = e.message;
@@ -86,6 +95,13 @@ class MerchantSessionProvider with ChangeNotifier {
       _merchantUser = MerchantUser.fromJson(
         Map<String, dynamic>.from(response['merchant_user']),
       );
+      final token = _token;
+      if (token != null && token.isNotEmpty) {
+        await MerchantNotificationService.instance.registerForMerchant(
+          apiClient: apiClient,
+          token: token,
+        );
+      }
       return true;
     } on AppException catch (e) {
       if (e.statusCode == 401 || e.statusCode == 403) {
@@ -100,6 +116,13 @@ class MerchantSessionProvider with ChangeNotifier {
 
   Future<void> logout({bool callServer = true}) async {
     final oldToken = _token;
+    if (oldToken != null && oldToken.isNotEmpty) {
+      await MerchantNotificationService.instance.deactivateForMerchant(
+        apiClient: apiClient,
+        token: oldToken,
+      );
+    }
+
     _token = null;
     _merchantUser = null;
     _errorMessage = null;
