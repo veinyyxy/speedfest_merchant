@@ -6,6 +6,7 @@ class MerchantOrder {
     required this.totalAmount,
     required this.currency,
     required this.itemCount,
+    required this.createdAt,
     required this.createdAtLabel,
     required this.customerName,
     required this.customerPhone,
@@ -28,6 +29,7 @@ class MerchantOrder {
   final double totalAmount;
   final String currency;
   final int itemCount;
+  final DateTime? createdAt;
   final String createdAtLabel;
   final String customerName;
   final String customerPhone;
@@ -85,6 +87,12 @@ class MerchantOrder {
       'orderItems',
     ]).map(MerchantOrderItem.fromJson).toList(growable: false);
 
+    final createdAtValue = _firstValue(json, const [
+      'created_at',
+      'createdAt',
+      'date',
+    ]);
+
     return MerchantOrder(
       id: _firstString(json, const ['order_id', 'orderId', 'id']),
       status: _firstString(json, const [
@@ -106,9 +114,8 @@ class MerchantOrder {
         'item_count',
         'itemCount',
       ], fallback: items.fold<int>(0, (sum, item) => sum + item.quantity)),
-      createdAtLabel: _formatDate(
-        _firstValue(json, const ['created_at', 'createdAt', 'date']),
-      ),
+      createdAt: _parseDate(createdAtValue),
+      createdAtLabel: _formatDate(createdAtValue),
       customerName: _firstString(customer, const [
         'username',
         'display_name',
@@ -431,7 +438,7 @@ List<Map<String, dynamic>> _readList(
 
 String _formatDate(dynamic value) {
   if (value == null) return '';
-  final parsed = DateTime.tryParse(value.toString());
+  final parsed = _parseDate(value);
   if (parsed == null) return value.toString();
   final local = parsed.toLocal();
   final month = local.month.toString().padLeft(2, '0');
@@ -439,6 +446,11 @@ String _formatDate(dynamic value) {
   final hour = local.hour.toString().padLeft(2, '0');
   final minute = local.minute.toString().padLeft(2, '0');
   return '${local.year}-$month-$day $hour:$minute';
+}
+
+DateTime? _parseDate(dynamic value) {
+  if (value == null) return null;
+  return DateTime.tryParse(value.toString());
 }
 
 String _formatAddress(dynamic value) {

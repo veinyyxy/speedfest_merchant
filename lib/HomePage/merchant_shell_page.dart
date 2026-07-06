@@ -3,11 +3,16 @@ import 'package:provider/provider.dart';
 
 import '../Common/merchant_navigation_intent.dart';
 import '../Controller/merchant_notification_service.dart';
+import '../Controller/merchant_notifications_provider.dart';
 import '../Controller/merchant_session_provider.dart';
+import '../Models/merchant_notification.dart';
 import '../OrderPage/merchant_orders_page.dart';
 import '../ProductPage/merchant_products_page.dart';
 import '../RewardPage/merchant_rewards_page.dart';
 import '../SettingsPage/merchant_settings_page.dart';
+
+typedef _OpenNotificationCallback =
+    Future<void> Function(MerchantNotification notification);
 
 class MerchantShellPage extends StatefulWidget {
   const MerchantShellPage({super.key});
@@ -19,6 +24,9 @@ class MerchantShellPage extends StatefulWidget {
 class _MerchantShellPageState extends State<MerchantShellPage> {
   int _selectedIndex = 0;
   late final VoidCallback _selectedTabListener;
+  late final VoidCallback _notificationsRefreshListener;
+  late final VoidCallback _foregroundNotificationListener;
+  int _lastForegroundNotificationSequence = 0;
 
   static const _pages = [
     MerchantOrdersPage(),
@@ -38,12 +46,32 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
       setState(() => _selectedIndex = nextIndex);
     };
     MerchantNavigationIntent.selectedTabIndex.addListener(_selectedTabListener);
+    _notificationsRefreshListener = () {
+      if (!mounted) return;
+      _refreshNotificationCount();
+    };
+    MerchantNavigationIntent.notificationsRefreshTick.addListener(
+      _notificationsRefreshListener,
+    );
+    _foregroundNotificationListener = _handleForegroundNotification;
+    MerchantNavigationIntent.foregroundNotification.addListener(
+      _foregroundNotificationListener,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshNotificationCount();
+    });
   }
 
   @override
   void dispose() {
     MerchantNavigationIntent.selectedTabIndex.removeListener(
       _selectedTabListener,
+    );
+    MerchantNavigationIntent.notificationsRefreshTick.removeListener(
+      _notificationsRefreshListener,
+    );
+    MerchantNavigationIntent.foregroundNotification.removeListener(
+      _foregroundNotificationListener,
     );
     super.dispose();
   }
@@ -53,12 +81,141 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
     MerchantNavigationIntent.selectedTabIndex.value = index;
   }
 
+  Future<void> _refreshNotificationCount() async {
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null || token.isEmpty) return;
+
+    await context.read<MerchantNotificationsProvider>().fetchUnreadCount(
+      apiClient: session.apiClient,
+      token: token,
+    );
+  }
+
+  Future<void> _loadNotifications() async {
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null || token.isEmpty) return;
+
+    await context.read<MerchantNotificationsProvider>().fetchNotifications(
+      apiClient: session.apiClient,
+      token: token,
+    );
+  }
+
+  Future<void> _markNotificationRead(String notificationId) async {
+    if (notificationId.trim().isEmpty) return;
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null || token.isEmpty) return;
+
+    await context.read<MerchantNotificationsProvider>().markRead(
+      apiClient: session.apiClient,
+      token: token,
+      notificationId: notificationId,
+    );
+  }
+
+  Future<void> _showNotifications() async {
+    await _loadNotifications();
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) => _MerchantNotificationsSheet(
+        onRefresh: _loadNotifications,
+        onMarkAllRead: _markAllNotificationsRead,
+        onSendTest: _sendTestNotification,
+        onOpenNotification: _openNotification,
+      ),
+    );
+  }
+
+  Future<void> _markAllNotificationsRead() async {
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null || token.isEmpty) return;
+
+    await context.read<MerchantNotificationsProvider>().markAllRead(
+      apiClient: session.apiClient,
+      token: token,
+    );
+  }
+
+  Future<void> _sendTestNotification() async {
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null || token.isEmpty) return;
+
+    await context.read<MerchantNotificationsProvider>().sendTestNotification(
+      apiClient: session.apiClient,
+      token: token,
+    );
+  }
+
+  Future<void> _openNotification(MerchantNotification notification) async {
+    await _markNotificationRead(notification.id);
+
+    if (notification.opensOrder) {
+      MerchantNavigationIntent.openOrder(
+        orderId: notification.resolvedOrderId,
+        notificationId: notification.id,
+      );
+      return;
+    }
+
+    MerchantNavigationIntent.openOrders();
+  }
+
+  void _handleForegroundNotification() {
+    final intent = MerchantNavigationIntent.foregroundNotification.value;
+    if (intent == null ||
+        intent.sequence == _lastForegroundNotificationSequence) {
+      return;
+    }
+    _lastForegroundNotificationSequence = intent.sequence;
+    _refreshNotificationCount();
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          intent.body.isEmpty
+              ? intent.title
+              : '${intent.title}: ${intent.body}',
+        ),
+        behavior: SnackBarBehavior.floating,
+        action: intent.orderId.isEmpty
+            ? null
+            : SnackBarAction(
+                label: 'View',
+                onPressed: () {
+                  _markNotificationRead(intent.notificationId);
+                  MerchantNavigationIntent.openOrder(
+                    orderId: intent.orderId,
+                    notificationId: intent.notificationId,
+                  );
+                },
+              ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 820;
 
     if (wide) {
       return Scaffold(
+        floatingActionButton: _MerchantNotificationButton(
+          onPressed: _showNotifications,
+        ),
         body: Row(
           children: [
             NavigationRail(
@@ -111,6 +268,9 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
 
     return Scaffold(
       body: _pages[_selectedIndex],
+      floatingActionButton: _MerchantNotificationButton(
+        onPressed: _showNotifications,
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
@@ -144,6 +304,298 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MerchantNotificationButton extends StatelessWidget {
+  const _MerchantNotificationButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<MerchantNotificationsProvider>(
+      builder: (context, provider, _) {
+        return FloatingActionButton.small(
+          tooltip: 'Notifications',
+          onPressed: onPressed,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Icon(Icons.notifications_outlined),
+              if (provider.unreadCount > 0)
+                Positioned(
+                  right: -7,
+                  top: -7,
+                  child: Container(
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade700,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      provider.unreadCount > 99
+                          ? '99+'
+                          : provider.unreadCount.toString(),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MerchantNotificationsSheet extends StatelessWidget {
+  const _MerchantNotificationsSheet({
+    required this.onRefresh,
+    required this.onMarkAllRead,
+    required this.onSendTest,
+    required this.onOpenNotification,
+  });
+
+  final Future<void> Function() onRefresh;
+  final Future<void> Function() onMarkAllRead;
+  final Future<void> Function() onSendTest;
+  final _OpenNotificationCallback onOpenNotification;
+
+  @override
+  Widget build(BuildContext context) {
+    final height = MediaQuery.of(context).size.height * 0.78;
+
+    return SafeArea(
+      top: false,
+      child: SizedBox(
+        height: height,
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 14, 8, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Notifications',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Send test',
+                    onPressed: () => onSendTest(),
+                    icon: const Icon(Icons.science_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Mark all read',
+                    onPressed: () => onMarkAllRead(),
+                    icon: const Icon(Icons.done_all_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Refresh',
+                    onPressed: () => onRefresh(),
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: Consumer<MerchantNotificationsProvider>(
+                builder: (context, provider, _) {
+                  if (provider.isLoading && provider.notifications.isEmpty) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (provider.errorMessage != null &&
+                      provider.notifications.isEmpty) {
+                    return _NotificationStateMessage(
+                      icon: Icons.error_outline,
+                      title: 'Notifications could not be loaded',
+                      message: provider.errorMessage!,
+                      onPressed: onRefresh,
+                    );
+                  }
+
+                  if (provider.notifications.isEmpty) {
+                    return _NotificationStateMessage(
+                      icon: Icons.notifications_none_outlined,
+                      title: 'No notifications yet',
+                      message: 'New paid orders will appear here.',
+                      onPressed: onRefresh,
+                    );
+                  }
+
+                  return RefreshIndicator(
+                    onRefresh: onRefresh,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+                      itemCount: provider.notifications.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final notification = provider.notifications[index];
+                        return _NotificationTile(
+                          notification: notification,
+                          onTap: () async {
+                            await onOpenNotification(notification);
+                            if (context.mounted) {
+                              Navigator.of(context).pop();
+                            }
+                          },
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationTile extends StatelessWidget {
+  const _NotificationTile({required this.notification, required this.onTap});
+
+  final MerchantNotification notification;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final unread = !notification.isRead;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      leading: CircleAvatar(
+        backgroundColor: unread
+            ? Theme.of(context).colorScheme.primary.withAlpha(28)
+            : Colors.grey.shade100,
+        child: Icon(
+          unread
+              ? Icons.notifications_active_outlined
+              : Icons.notifications_none_outlined,
+          color: unread
+              ? Theme.of(context).colorScheme.primary
+              : Colors.grey.shade600,
+        ),
+      ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              notification.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: unread ? FontWeight.bold : FontWeight.w600,
+              ),
+            ),
+          ),
+          if (unread)
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+                shape: BoxShape.circle,
+              ),
+            ),
+        ],
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (notification.body.isNotEmpty)
+              Text(
+                notification.body,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            if (notification.createdAtLabel.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                notification.createdAtLabel,
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              ),
+            ],
+          ],
+        ),
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
+class _NotificationStateMessage extends StatelessWidget {
+  const _NotificationStateMessage({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final Future<void> Function() onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(24, 80, 24, 24),
+      children: [
+        Icon(icon, size: 44, color: Colors.grey.shade500),
+        const SizedBox(height: 14),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          message,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.grey.shade700),
+        ),
+        const SizedBox(height: 16),
+        Center(
+          child: FilledButton.icon(
+            onPressed: () => onPressed(),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Refresh'),
+          ),
+        ),
+      ],
     );
   }
 }

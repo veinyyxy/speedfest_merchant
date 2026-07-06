@@ -53,6 +53,7 @@ class MerchantOrdersProvider with ChangeNotifier {
             ),
           )
           .toList(growable: false);
+      _sortOrders();
     } on AppException catch (e) {
       _errorMessage = e.message;
     } catch (e) {
@@ -210,6 +211,17 @@ class MerchantOrdersProvider with ChangeNotifier {
       nextOrders[index] = order;
     }
     _orders = nextOrders;
+    _sortOrders();
     notifyListeners();
   }
+
+  void _sortOrders() {
+    _orders = [..._orders]..sort(_compareOrdersByCreatedAtDesc);
+  }
+}
+
+int _compareOrdersByCreatedAtDesc(MerchantOrder left, MerchantOrder right) {
+  final leftTime = left.createdAt?.millisecondsSinceEpoch ?? 0;
+  final rightTime = right.createdAt?.millisecondsSinceEpoch ?? 0;
+  return rightTime.compareTo(leftTime);
 }

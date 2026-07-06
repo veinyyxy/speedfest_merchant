@@ -39,10 +39,17 @@ if (hasFirebaseConfig(self.firebaseConfig)) {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const notificationData = event.notification.data || {};
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
-        if ('focus' in client) return client.focus();
+        if ('focus' in client) {
+          client.postMessage({
+            type: 'merchant_notification_click',
+            data: notificationData,
+          });
+          return client.focus();
+        }
       }
       if (clients.openWindow) return clients.openWindow('/');
       return null;

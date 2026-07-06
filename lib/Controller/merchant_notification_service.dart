@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -5,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import '../Common/merchant_firebase_config.dart';
 import '../Common/merchant_navigation_intent.dart';
 import '../Common/merchant_service_config.dart';
+import '../Common/merchant_web_notification_click_stub.dart'
+    if (dart.library.html) '../Common/merchant_web_notification_click_web.dart';
 import 'signed_api_client.dart';
 
 @pragma('vm:entry-point')
@@ -177,8 +181,7 @@ class MerchantNotificationService {
         final webVapidKey = await MerchantFirebaseConfig.loadWebVapidKey();
         if (webVapidKey.isEmpty) {
           return const _FcmTokenResult(
-            errorMessage:
-                'MERCHANT_FIREBASE_WEB_VAPID_KEY is not configured.',
+            errorMessage: 'MERCHANT_FIREBASE_WEB_VAPID_KEY is not configured.',
           );
         }
         final token = await FirebaseMessaging.instance.getToken(
@@ -226,6 +229,7 @@ class MerchantNotificationService {
     FirebaseMessaging.instance.getInitialMessage().then((message) {
       if (message != null) _handleNotificationTap(message);
     });
+    attachMerchantWebNotificationClickListener();
   }
 
   void _attachTokenRefreshListener() {
@@ -241,16 +245,47 @@ class MerchantNotificationService {
   }
 
   void _handleNotificationTap(RemoteMessage message) {
-    final type = message.data['type']?.toString();
-    if (type == 'new_paid_order') {
+    final orderId = _orderIdFromData(message.data);
+    final notificationId = _readDataText(message.data, 'notification_id');
+
+    MerchantNavigationIntent.notifyNotificationsChanged();
+    if (orderId.isEmpty) {
       MerchantNavigationIntent.openOrders();
+      return;
     }
+
+    MerchantNavigationIntent.openOrder(
+      orderId: orderId,
+      notificationId: notificationId,
+    );
   }
 
   void _handleForegroundMessage(RemoteMessage message) {
-    final type = message.data['type']?.toString();
-    if (type == 'new_paid_order') {
-      MerchantNavigationIntent.openOrders();
+    final orderId = _orderIdFromData(message.data);
+    final notificationId = _readDataText(message.data, 'notification_id');
+
+    MerchantNavigationIntent.notifyNotificationsChanged();
+    MerchantNavigationIntent.showForegroundNotification(
+      title:
+          message.notification?.title ??
+          _readDataText(message.data, 'title').ifEmpty('SpeedFeast Merchant'),
+      body:
+          message.notification?.body ??
+          _readDataText(
+            message.data,
+            'body',
+          ).ifEmpty('You have a new notification.'),
+      orderId: orderId,
+      notificationId: notificationId,
+    );
+    if (orderId.isNotEmpty) {
+      Future<void>.delayed(Duration.zero, () {
+        MerchantNavigationIntent.openOrder(
+          orderId: orderId,
+          notificationId: notificationId,
+          markNotificationRead: false,
+        );
+      });
     }
   }
 
@@ -265,6 +300,49 @@ class MerchantNotificationService {
       TargetPlatform.fuchsia => 'unknown',
     };
   }
+}
+
+String _orderIdFromData(Map<String, dynamic> data) {
+  final directOrderId = _readDataText(data, 'order_id');
+  if (directOrderId.isNotEmpty) return directOrderId;
+
+  final actionPayload = _readActionPayload(data);
+  return (actionPayload['order_id'] ?? actionPayload['orderId'])
+          ?.toString()
+          .trim() ??
+      '';
+}
+
+String _readDataText(Map<String, dynamic> data, String key) {
+  final value = data[key];
+  if (value == null) return '';
+  return value.toString().trim();
+}
+
+Map<String, dynamic> _readActionPayload(Map<String, dynamic> data) {
+  final raw = data['action_payload'] ?? data['actionPayload'];
+  if (raw is Map) {
+    return raw.map<String, dynamic>(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+  }
+  if (raw is String && raw.trim().isNotEmpty) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return decoded.map<String, dynamic>(
+          (key, value) => MapEntry(key.toString(), value),
+        );
+      }
+    } catch (_) {
+      return const {};
+    }
+  }
+  return const {};
+}
+
+extension _EmptyStringFallback on String {
+  String ifEmpty(String fallback) => isEmpty ? fallback : this;
 }
 
 class MerchantNotificationRegistrationResult {

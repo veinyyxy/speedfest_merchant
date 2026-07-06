@@ -30,6 +30,13 @@ class MerchantServiceConfig {
       '/api/merchant/notifications/device-token';
   static const merchantDeviceTokenDeactivatePath =
       '/api/merchant/notifications/device-token/deactivate';
+  static const merchantNotificationsPath = '/api/merchant/notifications';
+  static const merchantNotificationsUnreadCountPath =
+      '/api/merchant/notifications/unread-count';
+  static const merchantNotificationsReadAllPath =
+      '/api/merchant/notifications/read-all';
+  static const merchantNotificationsTestPath =
+      '/api/merchant/notifications/test';
   static const merchantProductsPath = '/api/merchant/products';
   static const merchantCategoriesPath = '/api/merchant/categories';
   static const merchantCategoryCreatePath = '/api/merchant/categories/create';
@@ -47,4 +54,7 @@ class MerchantServiceConfig {
   static const merchantRewardUpdatePath = '/api/merchant/rewards/update';
   static const merchantRewardStatusPath = '/api/merchant/rewards/status';
   static const merchantBuyerConfigPath = '/api/merchant/settings/buyer-config';
+
+  static String merchantNotificationReadPath(String notificationId) =>
+      '/api/merchant/notifications/$notificationId/read';
 }

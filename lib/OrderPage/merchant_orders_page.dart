@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../Common/merchant_filter_preferences.dart';
 import '../Common/merchant_navigation_intent.dart';
+import '../Controller/merchant_notifications_provider.dart';
 import '../Controller/merchant_orders_provider.dart';
 import '../Controller/merchant_session_provider.dart';
 import '../Models/merchant_order.dart';
@@ -17,10 +18,16 @@ class MerchantOrdersPage extends StatefulWidget {
 
 class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   bool _loaded = false;
+  bool _initialLoadComplete = false;
   String _fulfillmentFilter = 'all';
   String _statusFilter = 'all';
   DateTimeRange? _dateRange = _todayDateRange();
   late final VoidCallback _ordersRefreshListener;
+  late final VoidCallback _orderOpenIntentListener;
+  final Map<String, GlobalKey> _orderCardKeys = {};
+  int _lastHandledOrderOpenSequence = 0;
+  String _highlightOrderId = '';
+  int _highlightNonce = 0;
 
   @override
   void initState() {
@@ -32,12 +39,24 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     MerchantNavigationIntent.ordersRefreshTick.addListener(
       _ordersRefreshListener,
     );
+    _orderOpenIntentListener = () {
+      _handleOrderOpenIntent();
+    };
+    MerchantNavigationIntent.orderOpenIntent.addListener(
+      _orderOpenIntentListener,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleOrderOpenIntent();
+    });
   }
 
   @override
   void dispose() {
     MerchantNavigationIntent.ordersRefreshTick.removeListener(
       _ordersRefreshListener,
+    );
+    MerchantNavigationIntent.orderOpenIntent.removeListener(
+      _orderOpenIntentListener,
     );
     super.dispose();
   }
@@ -76,6 +95,9 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     });
 
     await _fetchOrders();
+    if (!mounted) return;
+    _initialLoadComplete = true;
+    await _handleOrderOpenIntent();
   }
 
   Future<DateTimeRange?> _loadSavedDateRange() async {
@@ -212,6 +234,10 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
         .toList(growable: false);
   }
 
+  GlobalKey _keyForOrder(String orderId) {
+    return _orderCardKeys.putIfAbsent(orderId, GlobalKey.new);
+  }
+
   bool _matchesFulfillmentFilter(MerchantOrder order) {
     if (_fulfillmentFilter == 'all') return true;
     return order.normalizedFulfillmentType == _fulfillmentFilter;
@@ -296,17 +322,11 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   }
 
   Future<void> _showDetail(MerchantOrder order) async {
-    final session = context.read<MerchantSessionProvider>();
-    final token = session.token;
-    if (token == null) return;
+    await _showDetailByOrderId(order.id);
+  }
 
-    final detail = await context
-        .read<MerchantOrdersProvider>()
-        .fetchOrderDetail(
-          apiClient: session.apiClient,
-          token: token,
-          orderId: order.id,
-        );
+  Future<void> _showDetailByOrderId(String orderId) async {
+    final detail = await _fetchOrderDetailById(orderId);
     if (!mounted || detail == null) return;
 
     await showModalBottomSheet<void>(
@@ -320,6 +340,54 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
         order: detail,
         onSyncPaymentRecords: _syncPaymentRecords,
       ),
+    );
+  }
+
+  Future<MerchantOrder?> _fetchOrderDetailById(String orderId) async {
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null) return null;
+
+    return context.read<MerchantOrdersProvider>().fetchOrderDetail(
+      apiClient: session.apiClient,
+      token: token,
+      orderId: orderId,
+    );
+  }
+
+  Future<void> _handleOrderOpenIntent() async {
+    if (!_initialLoadComplete) return;
+
+    final intent = MerchantNavigationIntent.orderOpenIntent.value;
+    if (intent == null ||
+        intent.sequence == _lastHandledOrderOpenSequence ||
+        intent.orderId.isEmpty) {
+      return;
+    }
+    _lastHandledOrderOpenSequence = intent.sequence;
+
+    if (intent.refreshOrders) {
+      await _fetchOrders();
+    }
+    if (intent.markNotificationRead) {
+      await _markNotificationRead(intent.notificationId);
+    }
+    final order = await _fetchOrderDetailById(intent.orderId);
+    if (!mounted || order == null) return;
+
+    _showOrderInCurrentList(order);
+  }
+
+  Future<void> _markNotificationRead(String notificationId) async {
+    if (notificationId.trim().isEmpty) return;
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null) return;
+
+    await context.read<MerchantNotificationsProvider>().markRead(
+      apiClient: session.apiClient,
+      token: token,
+      notificationId: notificationId,
     );
   }
 
@@ -350,6 +418,60 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     );
 
     return syncedOrder;
+  }
+
+  void _showOrderInCurrentList(MerchantOrder order) {
+    final nextFulfillmentFilter = _fulfillmentFilterForOrder(order);
+    final nextStatusFilter = _statusFilterForOrder(order);
+
+    setState(() {
+      _fulfillmentFilter = nextFulfillmentFilter;
+      _statusFilter = nextStatusFilter;
+      _highlightOrderId = order.id;
+      _highlightNonce += 1;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToOrder(order.id);
+    });
+  }
+
+  String _fulfillmentFilterForOrder(MerchantOrder order) {
+    if (_matchesFulfillmentFilter(order)) return _fulfillmentFilter;
+    final fulfillment = order.normalizedFulfillmentType;
+    return _isFulfillmentFilter(fulfillment) ? fulfillment : 'all';
+  }
+
+  String _statusFilterForOrder(MerchantOrder order) {
+    if (_matchesStatusFilter(order)) return _statusFilter;
+    final nextStatus = order.isPendingPayment
+        ? 'pending_payment'
+        : order.normalizedStatus;
+    final nextFulfillment = _fulfillmentFilterForOrder(order);
+    return _statusAllowedForFulfillment(nextFulfillment, nextStatus)
+        ? nextStatus
+        : 'all';
+  }
+
+  void _scrollToOrder(String orderId, {int attempt = 0}) {
+    final context = _orderCardKeys[orderId]?.currentContext;
+    if (context == null) {
+      if (attempt < 3) {
+        Future<void>.delayed(const Duration(milliseconds: 80), () {
+          if (!mounted) return;
+          _scrollToOrder(orderId, attempt: attempt + 1);
+        });
+      }
+      return;
+    }
+
+    Scrollable.ensureVisible(
+      context,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      alignment: 0.18,
+    );
   }
 
   @override
@@ -391,6 +513,9 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
               provider: provider,
               orders: orders,
               dateRangeLabel: _dateRangeLabel(_dateRange),
+              orderKeyFor: _keyForOrder,
+              highlightOrderId: _highlightOrderId,
+              highlightNonce: _highlightNonce,
               onRefresh: _fetchOrders,
               onOpenDetail: _showDetail,
               onUpdateStatus: _updateStatus,
@@ -604,6 +729,9 @@ class _OrdersBody extends StatelessWidget {
     required this.provider,
     required this.orders,
     required this.dateRangeLabel,
+    required this.orderKeyFor,
+    required this.highlightOrderId,
+    required this.highlightNonce,
     required this.onRefresh,
     required this.onOpenDetail,
     required this.onUpdateStatus,
@@ -613,6 +741,9 @@ class _OrdersBody extends StatelessWidget {
   final MerchantOrdersProvider provider;
   final List<MerchantOrder> orders;
   final String dateRangeLabel;
+  final GlobalKey Function(String orderId) orderKeyFor;
+  final String highlightOrderId;
+  final int highlightNonce;
   final Future<void> Function() onRefresh;
   final ValueChanged<MerchantOrder> onOpenDetail;
   final void Function(MerchantOrder order, String status) onUpdateStatus;
@@ -653,20 +784,22 @@ class _OrdersBody extends StatelessWidget {
 
     return RefreshIndicator(
       onRefresh: onRefresh,
-      child: ListView.builder(
+      child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-        itemCount: orders.length,
-        itemBuilder: (context, index) {
-          final order = orders[index];
-          return _OrderCard(
-            order: order,
-            isUpdating: provider.isUpdating,
-            onOpenDetail: () => onOpenDetail(order),
-            onUpdateStatus: (status) => onUpdateStatus(order, status),
-            onRefund: () => onRefund(order),
-          );
-        },
+        children: [
+          for (final order in orders)
+            _OrderCard(
+              key: orderKeyFor(order.id),
+              order: order,
+              isUpdating: provider.isUpdating,
+              highlight: order.id == highlightOrderId,
+              highlightNonce: highlightNonce,
+              onOpenDetail: () => onOpenDetail(order),
+              onUpdateStatus: (status) => onUpdateStatus(order, status),
+              onRefund: () => onRefund(order),
+            ),
+        ],
       ),
     );
   }
@@ -674,8 +807,11 @@ class _OrdersBody extends StatelessWidget {
 
 class _OrderCard extends StatelessWidget {
   const _OrderCard({
+    super.key,
     required this.order,
     required this.isUpdating,
+    required this.highlight,
+    required this.highlightNonce,
     required this.onOpenDetail,
     required this.onUpdateStatus,
     required this.onRefund,
@@ -683,6 +819,8 @@ class _OrderCard extends StatelessWidget {
 
   final MerchantOrder order;
   final bool isUpdating;
+  final bool highlight;
+  final int highlightNonce;
   final VoidCallback onOpenDetail;
   final ValueChanged<String> onUpdateStatus;
   final VoidCallback onRefund;
@@ -692,116 +830,135 @@ class _OrderCard extends StatelessWidget {
     final nextAction = _primaryActionFor(order);
     final destructiveActions = _destructiveActionsFor(order);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('order-highlight-${order.id}-$highlightNonce-$highlight'),
+      tween: Tween<double>(begin: highlight ? 1 : 0, end: 0),
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeOutCubic,
+      builder: (context, highlightValue, _) {
+        final borderColor = Color.lerp(
+          Colors.grey.shade300,
+          Colors.green.shade600,
+          highlightValue,
+        )!;
+        final borderWidth = highlightValue > 0 ? 2.2 : 1.0;
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(color: borderColor, width: borderWidth),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        order.displayId,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            order.displayId,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            order.createdAtLabel,
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        order.createdAtLabel,
-                        style: TextStyle(color: Colors.grey.shade600),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                _StatusChip(order: order),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              children: [
-                _InfoPill(
-                  icon: Icons.storefront_outlined,
-                  label: order.fulfillmentLabel,
-                ),
-                _InfoPill(
-                  icon: Icons.shopping_bag_outlined,
-                  label:
-                      '${order.itemCount} item${order.itemCount == 1 ? '' : 's'}',
-                ),
-                _InfoPill(
-                  icon: Icons.payments_outlined,
-                  label:
-                      '${order.currency} \$${order.totalAmount.toStringAsFixed(2)}',
-                ),
-                _InfoPill(
-                  icon: Icons.credit_card_outlined,
-                  label: order.paymentDetailStatusLabel,
-                ),
-                if (order.hasRefund)
-                  _InfoPill(
-                    icon: Icons.reply_all_outlined,
-                    label:
-                        'Refunded: ${order.currency} \$${order.refundedAmount.toStringAsFixed(2)}',
-                  ),
-              ],
-            ),
-            if (order.customerPhone.isNotEmpty ||
-                order.customerName.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(
-                [
-                  order.customerName,
-                  order.customerPhone,
-                ].where((value) => value.isNotEmpty).join(' · '),
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ],
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                TextButton.icon(
-                  onPressed: onOpenDetail,
-                  icon: const Icon(Icons.receipt_long_outlined, size: 18),
-                  label: const Text('Details'),
-                ),
-                const Spacer(),
-                for (final action in destructiveActions) ...[
-                  TextButton(
-                    onPressed: isUpdating
-                        ? null
-                        : action.status == 'refunded'
-                        ? onRefund
-                        : () => onUpdateStatus(action.status),
-                    style: TextButton.styleFrom(
-                      foregroundColor: action.status == 'cancelled'
-                          ? Colors.red.shade700
-                          : Colors.orange.shade800,
                     ),
-                    child: Text(action.label),
+                    const SizedBox(width: 12),
+                    _StatusChip(order: order),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    _InfoPill(
+                      icon: Icons.storefront_outlined,
+                      label: order.fulfillmentLabel,
+                    ),
+                    _InfoPill(
+                      icon: Icons.shopping_bag_outlined,
+                      label:
+                          '${order.itemCount} item${order.itemCount == 1 ? '' : 's'}',
+                    ),
+                    _InfoPill(
+                      icon: Icons.payments_outlined,
+                      label:
+                          '${order.currency} \$${order.totalAmount.toStringAsFixed(2)}',
+                    ),
+                    _InfoPill(
+                      icon: Icons.credit_card_outlined,
+                      label: order.paymentDetailStatusLabel,
+                    ),
+                    if (order.hasRefund)
+                      _InfoPill(
+                        icon: Icons.reply_all_outlined,
+                        label:
+                            'Refunded: ${order.currency} \$${order.refundedAmount.toStringAsFixed(2)}',
+                      ),
+                  ],
+                ),
+                if (order.customerPhone.isNotEmpty ||
+                    order.customerName.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    [
+                      order.customerName,
+                      order.customerPhone,
+                    ].where((value) => value.isNotEmpty).join(' · '),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
-                  const SizedBox(width: 6),
                 ],
-                if (nextAction != null)
-                  FilledButton(
-                    onPressed: isUpdating
-                        ? null
-                        : () => onUpdateStatus(nextAction.status),
-                    child: Text(nextAction.label),
-                  ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    TextButton.icon(
+                      onPressed: onOpenDetail,
+                      icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                      label: const Text('Details'),
+                    ),
+                    const Spacer(),
+                    for (final action in destructiveActions) ...[
+                      TextButton(
+                        onPressed: isUpdating
+                            ? null
+                            : action.status == 'refunded'
+                            ? onRefund
+                            : () => onUpdateStatus(action.status),
+                        style: TextButton.styleFrom(
+                          foregroundColor: action.status == 'cancelled'
+                              ? Colors.red.shade700
+                              : Colors.orange.shade800,
+                        ),
+                        child: Text(action.label),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    if (nextAction != null)
+                      FilledButton(
+                        onPressed: isUpdating
+                            ? null
+                            : () => onUpdateStatus(nextAction.status),
+                        child: Text(nextAction.label),
+                      ),
+                  ],
+                ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
