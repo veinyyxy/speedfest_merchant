@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -17,8 +19,12 @@ class MerchantOrdersPage extends StatefulWidget {
 }
 
 class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
+  static const _unacceptedReminderDelay = Duration(minutes: 1);
+
   bool _loaded = false;
   bool _initialLoadComplete = false;
+  DateTime _now = DateTime.now();
+  Timer? _unacceptedReminderTimer;
   String _fulfillmentFilter = 'all';
   String _statusFilter = 'all';
   DateTimeRange? _dateRange = _todayDateRange();
@@ -48,6 +54,10 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handleOrderOpenIntent();
     });
+    _unacceptedReminderTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!mounted) return;
+      setState(() => _now = DateTime.now());
+    });
   }
 
   @override
@@ -58,6 +68,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     MerchantNavigationIntent.orderOpenIntent.removeListener(
       _orderOpenIntentListener,
     );
+    _unacceptedReminderTimer?.cancel();
     super.dispose();
   }
 
@@ -251,6 +262,16 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     }
 
     return order.normalizedStatus == _statusFilter;
+  }
+
+  bool _needsAcceptanceReminder(MerchantOrder order) {
+    if (order.normalizedStatus != 'paid') return false;
+
+    final referenceTime = order.updatedAt ?? order.createdAt;
+    if (referenceTime == null) return false;
+
+    final elapsed = _now.difference(referenceTime.toLocal());
+    return !elapsed.isNegative && elapsed >= _unacceptedReminderDelay;
   }
 
   Future<void> _updateStatus(MerchantOrder order, String status) async {
@@ -516,6 +537,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
               orderKeyFor: _keyForOrder,
               highlightOrderId: _highlightOrderId,
               highlightNonce: _highlightNonce,
+              needsAcceptanceReminder: _needsAcceptanceReminder,
               onRefresh: _fetchOrders,
               onOpenDetail: _showDetail,
               onUpdateStatus: _updateStatus,
@@ -732,6 +754,7 @@ class _OrdersBody extends StatelessWidget {
     required this.orderKeyFor,
     required this.highlightOrderId,
     required this.highlightNonce,
+    required this.needsAcceptanceReminder,
     required this.onRefresh,
     required this.onOpenDetail,
     required this.onUpdateStatus,
@@ -744,6 +767,7 @@ class _OrdersBody extends StatelessWidget {
   final GlobalKey Function(String orderId) orderKeyFor;
   final String highlightOrderId;
   final int highlightNonce;
+  final bool Function(MerchantOrder order) needsAcceptanceReminder;
   final Future<void> Function() onRefresh;
   final ValueChanged<MerchantOrder> onOpenDetail;
   final void Function(MerchantOrder order, String status) onUpdateStatus;
@@ -795,6 +819,7 @@ class _OrdersBody extends StatelessWidget {
               isUpdating: provider.isUpdating,
               highlight: order.id == highlightOrderId,
               highlightNonce: highlightNonce,
+              needsAcceptanceReminder: needsAcceptanceReminder(order),
               onOpenDetail: () => onOpenDetail(order),
               onUpdateStatus: (status) => onUpdateStatus(order, status),
               onRefund: () => onRefund(order),
@@ -812,6 +837,7 @@ class _OrderCard extends StatelessWidget {
     required this.isUpdating,
     required this.highlight,
     required this.highlightNonce,
+    required this.needsAcceptanceReminder,
     required this.onOpenDetail,
     required this.onUpdateStatus,
     required this.onRefund,
@@ -821,6 +847,7 @@ class _OrderCard extends StatelessWidget {
   final bool isUpdating;
   final bool highlight;
   final int highlightNonce;
+  final bool needsAcceptanceReminder;
   final VoidCallback onOpenDetail;
   final ValueChanged<String> onUpdateStatus;
   final VoidCallback onRefund;
@@ -837,11 +864,15 @@ class _OrderCard extends StatelessWidget {
       curve: Curves.easeOutCubic,
       builder: (context, highlightValue, _) {
         final borderColor = Color.lerp(
-          Colors.grey.shade300,
+          needsAcceptanceReminder ? Colors.red.shade700 : Colors.grey.shade300,
           Colors.green.shade600,
           highlightValue,
         )!;
-        final borderWidth = highlightValue > 0 ? 2.2 : 1.0;
+        final borderWidth = highlightValue > 0
+            ? 2.2
+            : needsAcceptanceReminder
+            ? 2.0
+            : 1.0;
 
         return Card(
           margin: const EdgeInsets.only(bottom: 12),

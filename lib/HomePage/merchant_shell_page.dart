@@ -13,6 +13,8 @@ import '../SettingsPage/merchant_settings_page.dart';
 
 typedef _OpenNotificationCallback =
     Future<void> Function(MerchantNotification notification);
+typedef _DeleteNotificationCallback =
+    Future<void> Function(MerchantNotification notification);
 
 class MerchantShellPage extends StatefulWidget {
   const MerchantShellPage({super.key});
@@ -130,8 +132,10 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
       builder: (_) => _MerchantNotificationsSheet(
         onRefresh: _loadNotifications,
         onMarkAllRead: _markAllNotificationsRead,
+        onDeleteRead: _deleteReadNotifications,
         onSendTest: _sendTestNotification,
         onOpenNotification: _openNotification,
+        onDeleteNotification: _deleteNotification,
       ),
     );
   }
@@ -144,6 +148,54 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
     await context.read<MerchantNotificationsProvider>().markAllRead(
       apiClient: session.apiClient,
       token: token,
+    );
+  }
+
+  Future<void> _deleteNotification(MerchantNotification notification) async {
+    if (notification.id.trim().isEmpty) return;
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null || token.isEmpty) return;
+
+    final provider = context.read<MerchantNotificationsProvider>();
+    final success = await provider.deleteNotification(
+      apiClient: session.apiClient,
+      token: token,
+      notificationId: notification.id,
+    );
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          success
+              ? 'Notification deleted.'
+              : provider.errorMessage ?? 'Unable to delete notification.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteReadNotifications() async {
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null || token.isEmpty) return;
+
+    final provider = context.read<MerchantNotificationsProvider>();
+    final success = await provider.deleteReadNotifications(
+      apiClient: session.apiClient,
+      token: token,
+    );
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          success
+              ? 'Read notifications deleted.'
+              : provider.errorMessage ?? 'Unable to delete read notifications.',
+        ),
+      ),
     );
   }
 
@@ -363,14 +415,18 @@ class _MerchantNotificationsSheet extends StatelessWidget {
   const _MerchantNotificationsSheet({
     required this.onRefresh,
     required this.onMarkAllRead,
+    required this.onDeleteRead,
     required this.onSendTest,
     required this.onOpenNotification,
+    required this.onDeleteNotification,
   });
 
   final Future<void> Function() onRefresh;
   final Future<void> Function() onMarkAllRead;
+  final Future<void> Function() onDeleteRead;
   final Future<void> Function() onSendTest;
   final _OpenNotificationCallback onOpenNotification;
+  final _DeleteNotificationCallback onDeleteNotification;
 
   @override
   Widget build(BuildContext context) {
@@ -414,6 +470,11 @@ class _MerchantNotificationsSheet extends StatelessWidget {
                     tooltip: 'Mark all read',
                     onPressed: () => onMarkAllRead(),
                     icon: const Icon(Icons.done_all_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Clear read',
+                    onPressed: () => onDeleteRead(),
+                    icon: const Icon(Icons.delete_sweep_outlined),
                   ),
                   IconButton(
                     tooltip: 'Refresh',
@@ -466,6 +527,7 @@ class _MerchantNotificationsSheet extends StatelessWidget {
                               Navigator.of(context).pop();
                             }
                           },
+                          onDelete: () => onDeleteNotification(notification),
                         );
                       },
                     ),
@@ -481,10 +543,15 @@ class _MerchantNotificationsSheet extends StatelessWidget {
 }
 
 class _NotificationTile extends StatelessWidget {
-  const _NotificationTile({required this.notification, required this.onTap});
+  const _NotificationTile({
+    required this.notification,
+    required this.onTap,
+    required this.onDelete,
+  });
 
   final MerchantNotification notification;
   final VoidCallback onTap;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -547,6 +614,11 @@ class _NotificationTile extends StatelessWidget {
             ],
           ],
         ),
+      ),
+      trailing: IconButton(
+        tooltip: 'Delete',
+        onPressed: onDelete,
+        icon: const Icon(Icons.delete_outline),
       ),
       onTap: onTap,
     );

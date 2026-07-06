@@ -141,6 +141,71 @@ class MerchantNotificationsProvider with ChangeNotifier {
     }
   }
 
+  Future<bool> deleteNotification({
+    required SignedApiClient apiClient,
+    required String token,
+    required String notificationId,
+  }) async {
+    if (notificationId.trim().isEmpty) return false;
+
+    _isUpdating = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await apiClient.post(
+        MerchantServiceConfig.merchantNotificationDeletePath(notificationId),
+        <String, dynamic>{},
+        token: token,
+      );
+      _notifications = _notifications
+          .where((item) => item.id != notificationId)
+          .toList(growable: false);
+      await fetchUnreadCount(apiClient: apiClient, token: token);
+      return true;
+    } on AppException catch (e) {
+      _errorMessage = e.message;
+      return false;
+    } catch (e) {
+      _errorMessage = 'Unable to delete notification: $e';
+      return false;
+    } finally {
+      _isUpdating = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> deleteReadNotifications({
+    required SignedApiClient apiClient,
+    required String token,
+  }) async {
+    _isUpdating = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await apiClient.post(
+        MerchantServiceConfig.merchantNotificationsDeleteReadPath,
+        <String, dynamic>{},
+        token: token,
+      );
+      _notifications = _notifications
+          .where((item) => !item.isRead)
+          .toList(growable: false);
+      await fetchUnreadCount(apiClient: apiClient, token: token);
+      return true;
+    } on AppException catch (e) {
+      _errorMessage = e.message;
+      return false;
+    } catch (e) {
+      _errorMessage = 'Unable to delete read notifications: $e';
+      return false;
+    } finally {
+      _isUpdating = false;
+      notifyListeners();
+    }
+  }
+
   Future<bool> sendTestNotification({
     required SignedApiClient apiClient,
     required String token,

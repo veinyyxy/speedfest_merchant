@@ -35,6 +35,8 @@ class MerchantServiceConfig {
       '/api/merchant/notifications/unread-count';
   static const merchantNotificationsReadAllPath =
       '/api/merchant/notifications/read-all';
+  static const merchantNotificationsDeleteReadPath =
+      '/api/merchant/notifications/delete-read';
   static const merchantNotificationsTestPath =
       '/api/merchant/notifications/test';
   static const merchantProductsPath = '/api/merchant/products';
@@ -57,4 +59,7 @@ class MerchantServiceConfig {
 
   static String merchantNotificationReadPath(String notificationId) =>
       '/api/merchant/notifications/$notificationId/read';
+
+  static String merchantNotificationDeletePath(String notificationId) =>
+      '/api/merchant/notifications/$notificationId/delete';
 }

@@ -7,6 +7,7 @@ class MerchantOrder {
     required this.currency,
     required this.itemCount,
     required this.createdAt,
+    required this.updatedAt,
     required this.createdAtLabel,
     required this.customerName,
     required this.customerPhone,
@@ -30,6 +31,7 @@ class MerchantOrder {
   final String currency;
   final int itemCount;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
   final String createdAtLabel;
   final String customerName;
   final String customerPhone;
@@ -92,6 +94,7 @@ class MerchantOrder {
       'createdAt',
       'date',
     ]);
+    final updatedAtValue = _firstValue(json, const ['updated_at', 'updatedAt']);
 
     return MerchantOrder(
       id: _firstString(json, const ['order_id', 'orderId', 'id']),
@@ -115,6 +118,7 @@ class MerchantOrder {
         'itemCount',
       ], fallback: items.fold<int>(0, (sum, item) => sum + item.quantity)),
       createdAt: _parseDate(createdAtValue),
+      updatedAt: _parseDate(updatedAtValue),
       createdAtLabel: _formatDate(createdAtValue),
       customerName: _firstString(customer, const [
         'username',

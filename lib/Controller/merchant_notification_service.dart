@@ -16,6 +16,11 @@ Future<void> merchantFirebaseMessagingBackgroundHandler(
   RemoteMessage message,
 ) async {
   try {
+    debugPrint(
+      '[FCM] background message: data=${message.data}, '
+      'title=${message.notification?.title}, '
+      'body=${message.notification?.body}',
+    );
     if (Firebase.apps.isEmpty) {
       final options = await MerchantFirebaseConfig.loadOptions();
       if (options == null) {
@@ -45,7 +50,9 @@ class MerchantNotificationService {
     required SignedApiClient apiClient,
     required String token,
   }) async {
+    debugPrint('[FCM] registerForMerchant start');
     if (token.trim().isEmpty) {
+      debugPrint('[FCM] registerForMerchant skipped: empty merchant token');
       return const MerchantNotificationRegistrationResult(
         success: false,
         message: 'Merchant session is not available.',
@@ -56,6 +63,7 @@ class MerchantNotificationService {
 
     final ready = await _ensureFirebaseReady();
     if (!ready) {
+      debugPrint('[FCM] Firebase is not ready');
       return const MerchantNotificationRegistrationResult(
         success: false,
         message:
@@ -64,6 +72,7 @@ class MerchantNotificationService {
     }
     final supported = await _isMessagingSupported();
     if (!supported) {
+      debugPrint('[FCM] Firebase messaging is not supported');
       return const MerchantNotificationRegistrationResult(
         success: false,
         message:
@@ -72,6 +81,7 @@ class MerchantNotificationService {
     }
 
     final permission = await _requestPermission();
+    debugPrint('[FCM] notification permission: ${permission.name}');
     if (permission == AuthorizationStatus.denied) {
       return const MerchantNotificationRegistrationResult(
         success: false,
@@ -82,6 +92,9 @@ class MerchantNotificationService {
 
     final fcmTokenResult = await _readFcmToken();
     if (fcmTokenResult.token == null || fcmTokenResult.token!.isEmpty) {
+      debugPrint(
+        '[FCM] unable to read FCM token: ${fcmTokenResult.errorMessage}',
+      );
       return MerchantNotificationRegistrationResult(
         success: false,
         message:
@@ -89,12 +102,14 @@ class MerchantNotificationService {
             'Unable to get a Firebase messaging token.',
       );
     }
+    debugPrint('[FCM] token prefix: ${_shortToken(fcmTokenResult.token!)}');
     final registered = await _registerToken(
       apiClient: apiClient,
       token: token,
       fcmToken: fcmTokenResult.token!,
     );
     if (!registered) {
+      debugPrint('[FCM] server registration failed');
       return const MerchantNotificationRegistrationResult(
         success: false,
         message: 'Unable to register notification token with the server.',
@@ -102,6 +117,7 @@ class MerchantNotificationService {
     }
 
     _attachTokenRefreshListener();
+    debugPrint('[FCM] registerForMerchant success');
     return const MerchantNotificationRegistrationResult(
       success: true,
       message: 'Notifications are enabled for this browser.',
@@ -207,12 +223,14 @@ class MerchantNotificationService {
     if (fcmToken.trim().isEmpty) return false;
 
     try {
+      debugPrint('[FCM] registering token on server: ${_shortToken(fcmToken)}');
       await apiClient.post(MerchantServiceConfig.merchantDeviceTokenPath, {
         'fcm_token': fcmToken,
         'platform': _platformName,
         'metadata': {'app': 'speedfeast_merchant'},
       }, token: token);
       _lastRegisteredToken = fcmToken;
+      debugPrint('[FCM] server token registration success');
       return true;
     } catch (err) {
       debugPrint('Unable to register merchant FCM token: $err');
@@ -223,6 +241,7 @@ class MerchantNotificationService {
   void _attachMessageListeners() {
     if (_listenersAttached) return;
     _listenersAttached = true;
+    debugPrint('[FCM] attaching message listeners');
 
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
@@ -237,6 +256,7 @@ class MerchantNotificationService {
     _tokenRefreshAttached = true;
 
     FirebaseMessaging.instance.onTokenRefresh.listen((nextToken) {
+      debugPrint('[FCM] token refreshed: ${_shortToken(nextToken)}');
       final apiClient = _apiClient;
       final token = _authToken;
       if (apiClient == null || token == null || token.isEmpty) return;
@@ -245,6 +265,11 @@ class MerchantNotificationService {
   }
 
   void _handleNotificationTap(RemoteMessage message) {
+    debugPrint(
+      '[FCM] notification tap: data=${message.data}, '
+      'title=${message.notification?.title}, '
+      'body=${message.notification?.body}',
+    );
     final orderId = _orderIdFromData(message.data);
     final notificationId = _readDataText(message.data, 'notification_id');
 
@@ -261,6 +286,11 @@ class MerchantNotificationService {
   }
 
   void _handleForegroundMessage(RemoteMessage message) {
+    debugPrint(
+      '[FCM] foreground message: data=${message.data}, '
+      'title=${message.notification?.title}, '
+      'body=${message.notification?.body}',
+    );
     final orderId = _orderIdFromData(message.data);
     final notificationId = _readDataText(message.data, 'notification_id');
 
@@ -317,6 +347,12 @@ String _readDataText(Map<String, dynamic> data, String key) {
   final value = data[key];
   if (value == null) return '';
   return value.toString().trim();
+}
+
+String _shortToken(String token) {
+  final text = token.trim();
+  if (text.length <= 24) return text;
+  return text.substring(0, 24);
 }
 
 Map<String, dynamic> _readActionPayload(Map<String, dynamic> data) {

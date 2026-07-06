@@ -25,7 +25,18 @@ class MainActivity : FlutterActivity() {
             setShowBadge(true)
         }
 
+        val orderCancelledChannel = NotificationChannel(
+            "order_cancelled",
+            "Order cancelled",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Notifications for customer-cancelled merchant orders"
+            enableVibration(true)
+            setShowBadge(true)
+        }
+
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.createNotificationChannel(newOrdersChannel)
+        notificationManager.createNotificationChannel(orderCancelledChannel)
     }
 }
