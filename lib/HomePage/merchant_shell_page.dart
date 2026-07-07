@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../Common/merchant_local_notification_service.dart';
+import '../Common/merchant_local_notification_payload.dart';
 import '../Common/merchant_navigation_intent.dart';
+import '../Common/merchant_notification_alert_registry.dart';
 import '../Controller/merchant_notification_service.dart';
 import '../Controller/merchant_notifications_provider.dart';
 import '../Controller/merchant_session_provider.dart';
@@ -23,12 +28,23 @@ class MerchantShellPage extends StatefulWidget {
   State<MerchantShellPage> createState() => _MerchantShellPageState();
 }
 
-class _MerchantShellPageState extends State<MerchantShellPage> {
+class _MerchantShellPageState extends State<MerchantShellPage>
+    with WidgetsBindingObserver {
+  static const _notificationPollInterval = Duration(seconds: 15);
+  static const _notificationPollLimit = 20;
+  static const _notificationPollEventTypes = {
+    'new_paid_order',
+    'customer_cancelled_order',
+  };
+
   int _selectedIndex = 0;
   late final VoidCallback _selectedTabListener;
   late final VoidCallback _notificationsRefreshListener;
   late final VoidCallback _foregroundNotificationListener;
   int _lastForegroundNotificationSequence = 0;
+  Timer? _notificationPollTimer;
+  bool _notificationPollInFlight = false;
+  bool _notificationPollSeeded = false;
 
   static const _pages = [
     MerchantOrdersPage(),
@@ -41,6 +57,8 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    MerchantLocalNotificationService.instance.attachTapListener();
     _selectedIndex = MerchantNavigationIntent.selectedTabIndex.value;
     _selectedTabListener = () {
       final nextIndex = MerchantNavigationIntent.selectedTabIndex.value;
@@ -61,11 +79,14 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshNotificationCount();
+      _startNotificationPolling();
     });
   }
 
   @override
   void dispose() {
+    _stopNotificationPolling();
+    WidgetsBinding.instance.removeObserver(this);
     MerchantNavigationIntent.selectedTabIndex.removeListener(
       _selectedTabListener,
     );
@@ -78,9 +99,89 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startNotificationPolling();
+      return;
+    }
+    _notificationPollSeeded = false;
+    _stopNotificationPolling();
+  }
+
   void _selectTab(int index) {
     setState(() => _selectedIndex = index);
     MerchantNavigationIntent.selectedTabIndex.value = index;
+  }
+
+  void _startNotificationPolling() {
+    if (!mounted) return;
+    _notificationPollTimer?.cancel();
+    _pollNotificationsForOrderEvents();
+    _notificationPollTimer = Timer.periodic(
+      _notificationPollInterval,
+      (_) => _pollNotificationsForOrderEvents(),
+    );
+  }
+
+  void _stopNotificationPolling() {
+    _notificationPollTimer?.cancel();
+    _notificationPollTimer = null;
+  }
+
+  Future<void> _pollNotificationsForOrderEvents() async {
+    if (_notificationPollInFlight || !mounted) return;
+
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null || token.isEmpty) return;
+
+    _notificationPollInFlight = true;
+    try {
+      final provider = context.read<MerchantNotificationsProvider>();
+      final snapshot = await provider.fetchNotificationSnapshot(
+        apiClient: session.apiClient,
+        token: token,
+        limit: _notificationPollLimit,
+      );
+      final watchedNotifications = snapshot
+          .where(_isOrderEventNotification)
+          .toList(growable: false);
+
+      if (!_notificationPollSeeded) {
+        await _markNotificationsAlerted(watchedNotifications);
+        _notificationPollSeeded = true;
+        return;
+      }
+
+      final newNotifications = <MerchantNotification>[];
+      for (final notification in watchedNotifications) {
+        final shouldAlert = await MerchantNotificationAlertRegistry.instance
+            .shouldAlertNotification(notification);
+        if (shouldAlert) {
+          newNotifications.add(notification);
+        }
+      }
+
+      if (newNotifications.isEmpty || !mounted) return;
+
+      await provider.fetchNotifications(
+        apiClient: session.apiClient,
+        token: token,
+      );
+
+      for (final notification in newNotifications.reversed) {
+        await _handleForegroundOrderAlert(
+          MerchantLocalNotificationPayload.fromNotification(notification),
+          refreshNotifications: false,
+          alreadyReserved: true,
+        );
+      }
+    } catch (err) {
+      debugPrint('Unable to poll merchant notifications: $err');
+    } finally {
+      _notificationPollInFlight = false;
+    }
   }
 
   Future<void> _refreshNotificationCount() async {
@@ -153,6 +254,11 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
 
   Future<void> _deleteNotification(MerchantNotification notification) async {
     if (notification.id.trim().isEmpty) return;
+    unawaited(
+      MerchantNotificationAlertRegistry.instance.markNotificationAlerted(
+        notification,
+      ),
+    );
     final session = context.read<MerchantSessionProvider>();
     final token = session.token;
     if (token == null || token.isEmpty) return;
@@ -211,6 +317,11 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
   }
 
   Future<void> _openNotification(MerchantNotification notification) async {
+    unawaited(
+      MerchantNotificationAlertRegistry.instance.markNotificationAlerted(
+        notification,
+      ),
+    );
     await _markNotificationRead(notification.id);
 
     if (notification.opensOrder) {
@@ -231,32 +342,128 @@ class _MerchantShellPageState extends State<MerchantShellPage> {
       return;
     }
     _lastForegroundNotificationSequence = intent.sequence;
+    if (_isOrderEventType(intent.eventType)) {
+      unawaited(
+        _handleForegroundOrderAlert(
+          MerchantLocalNotificationPayload(
+            notificationId: intent.notificationId,
+            eventType: intent.eventType,
+            orderId: intent.orderId,
+            title: intent.title,
+            body: intent.body,
+          ),
+        ),
+      );
+      return;
+    }
+
     _refreshNotificationCount();
+    _showForegroundSnackBar(
+      title: intent.title,
+      body: intent.body,
+      orderId: intent.orderId,
+      notificationId: intent.notificationId,
+    );
+  }
+
+  Future<void> _handleForegroundOrderAlert(
+    MerchantLocalNotificationPayload payload, {
+    bool refreshNotifications = true,
+    bool alreadyReserved = false,
+  }) async {
+    if (!alreadyReserved) {
+      final shouldAlert = await MerchantNotificationAlertRegistry.instance
+          .shouldAlert(
+            notificationId: payload.notificationId,
+            eventType: payload.eventType,
+            orderId: payload.orderId,
+          );
+      if (!shouldAlert) {
+        await _refreshNotificationCount();
+        return;
+      }
+    }
+    if (!mounted) return;
+
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (refreshNotifications && token != null && token.isNotEmpty) {
+      await context.read<MerchantNotificationsProvider>().fetchNotifications(
+        apiClient: session.apiClient,
+        token: token,
+      );
+    } else {
+      await _refreshNotificationCount();
+    }
+
+    await MerchantLocalNotificationService.instance.showPayload(payload);
+    if (!mounted) return;
+
+    _showForegroundSnackBar(
+      title: payload.title,
+      body: payload.body,
+      orderId: payload.orderId,
+      notificationId: payload.notificationId,
+    );
+
+    if (payload.orderId.isNotEmpty) {
+      MerchantNavigationIntent.openOrder(
+        orderId: payload.orderId,
+        notificationId: payload.notificationId,
+        markNotificationRead: false,
+      );
+      return;
+    }
+
+    MerchantNavigationIntent.openOrders();
+  }
+
+  void _showForegroundSnackBar({
+    required String title,
+    required String body,
+    required String orderId,
+    required String notificationId,
+  }) {
+    if (!mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
       SnackBar(
-        content: Text(
-          intent.body.isEmpty
-              ? intent.title
-              : '${intent.title}: ${intent.body}',
-        ),
+        content: Text(body.isEmpty ? title : '$title: $body'),
         behavior: SnackBarBehavior.floating,
-        action: intent.orderId.isEmpty
+        action: orderId.isEmpty
             ? null
             : SnackBarAction(
                 label: 'View',
                 onPressed: () {
-                  _markNotificationRead(intent.notificationId);
+                  _markNotificationRead(notificationId);
                   MerchantNavigationIntent.openOrder(
-                    orderId: intent.orderId,
-                    notificationId: intent.notificationId,
+                    orderId: orderId,
+                    notificationId: notificationId,
                   );
                 },
               ),
       ),
     );
+  }
+
+  bool _isOrderEventType(String eventType) {
+    return _notificationPollEventTypes.contains(eventType.trim().toLowerCase());
+  }
+
+  bool _isOrderEventNotification(MerchantNotification notification) {
+    return _isOrderEventType(notification.eventType);
+  }
+
+  Future<void> _markNotificationsAlerted(
+    Iterable<MerchantNotification> notifications,
+  ) async {
+    for (final notification in notifications) {
+      await MerchantNotificationAlertRegistry.instance.markNotificationAlerted(
+        notification,
+      );
+    }
   }
 
   @override

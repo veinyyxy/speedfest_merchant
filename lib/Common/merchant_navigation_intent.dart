@@ -48,6 +48,7 @@ class MerchantNavigationIntent {
   static void showForegroundNotification({
     required String title,
     required String body,
+    String eventType = '',
     String orderId = '',
     String notificationId = '',
   }) {
@@ -55,6 +56,7 @@ class MerchantNavigationIntent {
       sequence: _nextSequence(),
       title: title.trim(),
       body: body.trim(),
+      eventType: eventType.trim(),
       orderId: orderId.trim(),
       notificationId: notificationId.trim(),
     );
@@ -87,6 +89,7 @@ class MerchantForegroundNotificationIntent {
     required this.sequence,
     required this.title,
     required this.body,
+    required this.eventType,
     required this.orderId,
     required this.notificationId,
   });
@@ -94,6 +97,7 @@ class MerchantForegroundNotificationIntent {
   final int sequence;
   final String title;
   final String body;
+  final String eventType;
   final String orderId;
   final String notificationId;
 }

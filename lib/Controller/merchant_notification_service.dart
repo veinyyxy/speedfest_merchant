@@ -293,6 +293,7 @@ class MerchantNotificationService {
     );
     final orderId = _orderIdFromData(message.data);
     final notificationId = _readDataText(message.data, 'notification_id');
+    final eventType = _eventTypeFromData(message.data);
 
     MerchantNavigationIntent.notifyNotificationsChanged();
     MerchantNavigationIntent.showForegroundNotification(
@@ -305,18 +306,10 @@ class MerchantNotificationService {
             message.data,
             'body',
           ).ifEmpty('You have a new notification.'),
+      eventType: eventType,
       orderId: orderId,
       notificationId: notificationId,
     );
-    if (orderId.isNotEmpty) {
-      Future<void>.delayed(Duration.zero, () {
-        MerchantNavigationIntent.openOrder(
-          orderId: orderId,
-          notificationId: notificationId,
-          markNotificationRead: false,
-        );
-      });
-    }
   }
 
   String get _platformName {
@@ -330,6 +323,12 @@ class MerchantNotificationService {
       TargetPlatform.fuchsia => 'unknown',
     };
   }
+}
+
+String _eventTypeFromData(Map<String, dynamic> data) {
+  final directEventType = _readDataText(data, 'event_type');
+  if (directEventType.isNotEmpty) return directEventType;
+  return _readDataText(data, 'type');
 }
 
 String _orderIdFromData(Map<String, dynamic> data) {

@@ -33,18 +33,7 @@ class MerchantNotificationsProvider with ChangeNotifier {
         queryParameters: {'limit': limit, if (unreadOnly) 'unread_only': true},
         token: token,
       );
-      final response = Map<String, dynamic>.from(rawResponse as Map);
-      final rawNotifications = response['notifications'] as List? ?? const [];
-      _notifications = rawNotifications
-          .whereType<Map>()
-          .map(
-            (item) => MerchantNotification.fromJson(
-              item.map<String, dynamic>(
-                (key, value) => MapEntry(key.toString(), value),
-              ),
-            ),
-          )
-          .toList(growable: false);
+      _notifications = _parseNotifications(rawResponse);
       _unreadCount = _notifications.where((item) => !item.isRead).length;
       await fetchUnreadCount(apiClient: apiClient, token: token);
     } on AppException catch (e) {
@@ -55,6 +44,20 @@ class MerchantNotificationsProvider with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  Future<List<MerchantNotification>> fetchNotificationSnapshot({
+    required SignedApiClient apiClient,
+    required String token,
+    bool unreadOnly = false,
+    int limit = 10,
+  }) async {
+    final rawResponse = await apiClient.get(
+      MerchantServiceConfig.merchantNotificationsPath,
+      queryParameters: {'limit': limit, if (unreadOnly) 'unread_only': true},
+      token: token,
+    );
+    return _parseNotifications(rawResponse);
   }
 
   Future<void> fetchUnreadCount({
@@ -239,6 +242,21 @@ class MerchantNotificationsProvider with ChangeNotifier {
         .map(
           (item) =>
               item.id == notificationId ? item.copyWith(isRead: isRead) : item,
+        )
+        .toList(growable: false);
+  }
+
+  List<MerchantNotification> _parseNotifications(dynamic rawResponse) {
+    final response = Map<String, dynamic>.from(rawResponse as Map);
+    final rawNotifications = response['notifications'] as List? ?? const [];
+    return rawNotifications
+        .whereType<Map>()
+        .map(
+          (item) => MerchantNotification.fromJson(
+            item.map<String, dynamic>(
+              (key, value) => MapEntry(key.toString(), value),
+            ),
+          ),
         )
         .toList(growable: false);
   }
