@@ -20,13 +20,19 @@ class MerchantOrdersPage extends StatefulWidget {
 
 class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   static const _unacceptedReminderDelay = Duration(minutes: 1);
+  static const _forcedVisibleOrderDuration = Duration(seconds: 4);
 
   bool _loaded = false;
   bool _initialLoadComplete = false;
   DateTime _now = DateTime.now();
   Timer? _unacceptedReminderTimer;
+  Timer? _forcedVisibleOrderTimer;
+  bool _businessFilterMode = false;
   String _fulfillmentFilter = 'all';
   String _statusFilter = 'all';
+  String _businessFulfillmentFilter = 'delivery';
+  String _businessStageFilter = 'active';
+  String _businessQueueFilter = 'new_order';
   DateTimeRange? _dateRange = _todayDateRange();
   late final VoidCallback _ordersRefreshListener;
   late final VoidCallback _orderOpenIntentListener;
@@ -34,6 +40,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   int _lastHandledOrderOpenSequence = 0;
   String _highlightOrderId = '';
   int _highlightNonce = 0;
+  String _forcedVisibleOrderId = '';
 
   @override
   void initState() {
@@ -69,6 +76,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
       _orderOpenIntentListener,
     );
     _unacceptedReminderTimer?.cancel();
+    _forcedVisibleOrderTimer?.cancel();
     super.dispose();
   }
 
@@ -81,11 +89,24 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   }
 
   Future<void> _loadFiltersAndFetch() async {
+    final filterMode = await MerchantFilterPreferences.readString(
+      MerchantFilterPreferences.ordersFilterMode,
+    );
     final fulfillmentFilter = await MerchantFilterPreferences.readString(
       MerchantFilterPreferences.ordersFulfillmentFilter,
     );
     final statusFilter = await MerchantFilterPreferences.readString(
       MerchantFilterPreferences.ordersStatusFilter,
+    );
+    final businessFulfillmentFilter =
+        await MerchantFilterPreferences.readString(
+          MerchantFilterPreferences.ordersBusinessFulfillmentFilter,
+        );
+    final businessStageFilter = await MerchantFilterPreferences.readString(
+      MerchantFilterPreferences.ordersBusinessStageFilter,
+    );
+    final businessQueueFilter = await MerchantFilterPreferences.readString(
+      MerchantFilterPreferences.ordersBusinessQueueFilter,
     );
     final dateRange = await _loadSavedDateRange();
     if (!mounted) return;
@@ -98,10 +119,32 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
             _statusAllowedForFulfillment(nextFulfillment, statusFilter)
         ? statusFilter
         : 'all';
+    final nextBusinessMode = filterMode == 'business';
+    final nextBusinessFulfillment =
+        _isBusinessFulfillmentFilter(businessFulfillmentFilter)
+        ? businessFulfillmentFilter!
+        : _isBusinessFulfillmentFilter(nextFulfillment)
+        ? nextFulfillment
+        : 'delivery';
+    final nextBusinessStage = _isBusinessStageFilter(businessStageFilter)
+        ? businessStageFilter!
+        : 'active';
+    final nextBusinessQueue =
+        businessQueueFilter != null &&
+            _businessQueueAllowedForFulfillment(
+              nextBusinessFulfillment,
+              businessQueueFilter,
+            )
+        ? businessQueueFilter
+        : 'new_order';
 
     setState(() {
+      _businessFilterMode = nextBusinessMode;
       _fulfillmentFilter = nextFulfillment;
       _statusFilter = nextStatus;
+      _businessFulfillmentFilter = nextBusinessFulfillment;
+      _businessStageFilter = nextBusinessStage;
+      _businessQueueFilter = nextBusinessQueue;
       _dateRange = dateRange;
     });
 
@@ -146,8 +189,8 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     await context.read<MerchantOrdersProvider>().fetchOrders(
       apiClient: session.apiClient,
       token: token,
-      dateFrom: _dateRange?.start,
-      dateTo: _dateRange?.end,
+      dateFrom: _queryDateFrom(),
+      dateTo: _queryDateTo(),
     );
   }
 
@@ -202,6 +245,49 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     );
   }
 
+  Future<void> _setBusinessFilterMode(bool enabled) async {
+    setState(() => _businessFilterMode = enabled);
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.ordersFilterMode,
+      enabled ? 'business' : 'debug',
+    );
+    await _fetchOrders();
+  }
+
+  Future<void> _setBusinessFulfillmentFilter(String type) async {
+    setState(() {
+      _businessFulfillmentFilter = type;
+      if (!_businessQueueAllowedForFulfillment(type, _businessQueueFilter)) {
+        _businessQueueFilter = 'new_order';
+      }
+    });
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.ordersBusinessFulfillmentFilter,
+      _businessFulfillmentFilter,
+    );
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.ordersBusinessQueueFilter,
+      _businessQueueFilter,
+    );
+  }
+
+  Future<void> _setBusinessStageFilter(String stage) async {
+    setState(() => _businessStageFilter = stage);
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.ordersBusinessStageFilter,
+      stage,
+    );
+    await _fetchOrders();
+  }
+
+  Future<void> _setBusinessQueueFilter(String queue) async {
+    setState(() => _businessQueueFilter = queue);
+    await MerchantFilterPreferences.writeString(
+      MerchantFilterPreferences.ordersBusinessQueueFilter,
+      queue,
+    );
+  }
+
   Future<void> _saveDateShortcut(_DateShortcut shortcut) async {
     await MerchantFilterPreferences.writeString(
       MerchantFilterPreferences.ordersDateFilter,
@@ -236,7 +322,43 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     );
   }
 
+  DateTime? _queryDateFrom() {
+    if (!_businessFilterMode) return _dateRange?.start;
+
+    final today = DateTime.now();
+    return switch (_businessStageFilter) {
+      'active' => _startOfDay(today),
+      'upcoming' => _startOfDay(today.add(const Duration(days: 1))),
+      'history' => null,
+      _ => _startOfDay(today),
+    };
+  }
+
+  DateTime? _queryDateTo() {
+    if (!_businessFilterMode) return _dateRange?.end;
+
+    final today = DateTime.now();
+    return switch (_businessStageFilter) {
+      'active' => _endOfDay(today),
+      'upcoming' => null,
+      'history' => _endOfDay(today.subtract(const Duration(days: 1))),
+      _ => _endOfDay(today),
+    };
+  }
+
   List<MerchantOrder> _filteredOrders(List<MerchantOrder> orders) {
+    if (_businessFilterMode) {
+      return orders
+          .where(
+            (order) =>
+                order.id == _forcedVisibleOrderId ||
+                _matchesBusinessFulfillmentFilter(order) &&
+                    _matchesBusinessStageFilter(order) &&
+                    _matchesBusinessQueueFilter(order),
+          )
+          .toList(growable: false);
+    }
+
     return orders
         .where(
           (order) =>
@@ -252,6 +374,49 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   bool _matchesFulfillmentFilter(MerchantOrder order) {
     if (_fulfillmentFilter == 'all') return true;
     return order.normalizedFulfillmentType == _fulfillmentFilter;
+  }
+
+  bool _matchesBusinessFulfillmentFilter(MerchantOrder order) {
+    return order.normalizedFulfillmentType == _businessFulfillmentFilter;
+  }
+
+  bool _matchesBusinessStageFilter(MerchantOrder order) {
+    final createdAt = order.createdAt?.toLocal();
+    if (createdAt == null) return _businessStageFilter == 'active';
+
+    final today = DateTime.now();
+    final todayStart = _startOfDay(today);
+    final todayEnd = _endOfDay(today);
+
+    return switch (_businessStageFilter) {
+      'active' =>
+        !createdAt.isBefore(todayStart) && !createdAt.isAfter(todayEnd),
+      'upcoming' => createdAt.isAfter(todayEnd),
+      'history' => createdAt.isBefore(todayStart),
+      _ => !createdAt.isBefore(todayStart) && !createdAt.isAfter(todayEnd),
+    };
+  }
+
+  bool _matchesBusinessQueueFilter(MerchantOrder order) {
+    final status = order.normalizedStatus;
+    return switch (_businessQueueFilter) {
+      'new_order' =>
+        status == 'paid' || status == 'accepted' || status == 'preparing',
+      'ready' => status == 'ready',
+      'on_the_way' =>
+        order.isDelivery &&
+            _businessFulfillmentFilter == 'delivery' &&
+            status == 'on_the_way',
+      'delivered' =>
+        order.isDelivery &&
+            _businessFulfillmentFilter == 'delivery' &&
+            status == 'delivered',
+      'completed' =>
+        !order.isDelivery &&
+            _businessFulfillmentFilter != 'delivery' &&
+            status == 'completed',
+      _ => false,
+    };
   }
 
   bool _matchesStatusFilter(MerchantOrder order) {
@@ -441,20 +606,56 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     return syncedOrder;
   }
 
+  String _ordersDateScopeLabel() {
+    if (!_businessFilterMode) return _dateRangeLabel(_dateRange);
+    return _businessStageLabel(_businessStageFilter);
+  }
+
   void _showOrderInCurrentList(MerchantOrder order) {
     final nextFulfillmentFilter = _fulfillmentFilterForOrder(order);
     final nextStatusFilter = _statusFilterForOrder(order);
+    final nextBusinessFulfillmentFilter = _businessFulfillmentForOrder(order);
+    final nextBusinessStageFilter = _businessStageForOrder(order);
+    final nextBusinessQueueFilter = _businessQueueForOrder(order);
+    final isBusinessMode = _businessFilterMode;
 
     setState(() {
-      _fulfillmentFilter = nextFulfillmentFilter;
-      _statusFilter = nextStatusFilter;
+      if (_businessFilterMode) {
+        _businessFulfillmentFilter = nextBusinessFulfillmentFilter;
+        _businessStageFilter = nextBusinessStageFilter;
+        if (nextBusinessQueueFilter != null) {
+          _businessQueueFilter = nextBusinessQueueFilter;
+        } else if (!_businessQueueAllowedForFulfillment(
+          nextBusinessFulfillmentFilter,
+          _businessQueueFilter,
+        )) {
+          _businessQueueFilter = 'new_order';
+        }
+        _forcedVisibleOrderId = order.id;
+      } else {
+        _fulfillmentFilter = nextFulfillmentFilter;
+        _statusFilter = nextStatusFilter;
+        _forcedVisibleOrderId = '';
+      }
       _highlightOrderId = order.id;
       _highlightNonce += 1;
     });
 
+    if (isBusinessMode) {
+      _scheduleForcedVisibleOrderClear(order.id);
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _scrollToOrder(order.id);
+    });
+  }
+
+  void _scheduleForcedVisibleOrderClear(String orderId) {
+    _forcedVisibleOrderTimer?.cancel();
+    _forcedVisibleOrderTimer = Timer(_forcedVisibleOrderDuration, () {
+      if (!mounted || _forcedVisibleOrderId != orderId) return;
+      setState(() => _forcedVisibleOrderId = '');
     });
   }
 
@@ -473,6 +674,44 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     return _statusAllowedForFulfillment(nextFulfillment, nextStatus)
         ? nextStatus
         : 'all';
+  }
+
+  String _businessFulfillmentForOrder(MerchantOrder order) {
+    final fulfillment = order.normalizedFulfillmentType;
+    return _isBusinessFulfillmentFilter(fulfillment)
+        ? fulfillment
+        : _businessFulfillmentFilter;
+  }
+
+  String _businessStageForOrder(MerchantOrder order) {
+    final createdAt = order.createdAt?.toLocal();
+    if (createdAt == null) return 'active';
+
+    final today = DateTime.now();
+    final todayStart = _startOfDay(today);
+    final todayEnd = _endOfDay(today);
+    if (createdAt.isBefore(todayStart)) return 'history';
+    if (createdAt.isAfter(todayEnd)) return 'upcoming';
+    return 'active';
+  }
+
+  String? _businessQueueForOrder(MerchantOrder order) {
+    final status = order.normalizedStatus;
+    final fulfillment = _businessFulfillmentForOrder(order);
+    if (status == 'paid' || status == 'accepted' || status == 'preparing') {
+      return 'new_order';
+    }
+    if (status == 'ready') return 'ready';
+    if (fulfillment == 'delivery' && status == 'on_the_way') {
+      return 'on_the_way';
+    }
+    if (fulfillment == 'delivery' && status == 'delivered') {
+      return 'delivered';
+    }
+    if (fulfillment != 'delivery' && status == 'completed') {
+      return 'completed';
+    }
+    return null;
   }
 
   void _scrollToOrder(String orderId, {int attempt = 0}) {
@@ -499,11 +738,28 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   Widget build(BuildContext context) {
     final provider = context.watch<MerchantOrdersProvider>();
     final orders = _filteredOrders(provider.orders);
-    final statusFilters = _statusFiltersForFulfillment(_fulfillmentFilter);
+    final statusFilters = _businessFilterMode
+        ? const <_OrderFilter>[]
+        : _statusFiltersForFulfillment(_fulfillmentFilter);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Orders'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Orders'),
+            const SizedBox(width: 10),
+            Tooltip(
+              message: _businessFilterMode
+                  ? 'Business categories'
+                  : 'Debug categories',
+              child: Switch.adaptive(
+                value: _businessFilterMode,
+                onChanged: _setBusinessFilterMode,
+              ),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             tooltip: 'Refresh',
@@ -514,26 +770,44 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
       ),
       body: Column(
         children: [
-          _DateRangeFilterBar(
-            selectedDateShortcut: _shortcutForRange(_dateRange),
-            customDateLabel: _dateRangeLabel(_dateRange),
-            onSelectDateShortcut: _selectDateShortcut,
-            onSelectCustomDate: _selectDateRange,
-          ),
-          _FulfillmentFilterBar(
-            selectedType: _fulfillmentFilter,
-            onSelected: _setFulfillmentFilter,
-          ),
-          _StatusFilterBar(
-            filters: statusFilters,
-            selectedStatus: _statusFilter,
-            onSelected: _setStatusFilter,
-          ),
+          if (_businessFilterMode) ...[
+            _BusinessFulfillmentFilterBar(
+              selectedType: _businessFulfillmentFilter,
+              onSelected: _setBusinessFulfillmentFilter,
+            ),
+            _BusinessStageFilterBar(
+              selectedStage: _businessStageFilter,
+              onSelected: _setBusinessStageFilter,
+            ),
+            _BusinessQueueFilterBar(
+              filters: _businessQueueFiltersForFulfillment(
+                _businessFulfillmentFilter,
+              ),
+              selectedQueue: _businessQueueFilter,
+              onSelected: _setBusinessQueueFilter,
+            ),
+          ] else ...[
+            _DateRangeFilterBar(
+              selectedDateShortcut: _shortcutForRange(_dateRange),
+              customDateLabel: _dateRangeLabel(_dateRange),
+              onSelectDateShortcut: _selectDateShortcut,
+              onSelectCustomDate: _selectDateRange,
+            ),
+            _FulfillmentFilterBar(
+              selectedType: _fulfillmentFilter,
+              onSelected: _setFulfillmentFilter,
+            ),
+            _StatusFilterBar(
+              filters: statusFilters,
+              selectedStatus: _statusFilter,
+              onSelected: _setStatusFilter,
+            ),
+          ],
           Expanded(
             child: _OrdersBody(
               provider: provider,
               orders: orders,
-              dateRangeLabel: _dateRangeLabel(_dateRange),
+              dateRangeLabel: _ordersDateScopeLabel(),
               orderKeyFor: _keyForOrder,
               highlightOrderId: _highlightOrderId,
               highlightNonce: _highlightNonce,
@@ -636,6 +910,83 @@ class _StatusFilterBar extends StatelessWidget {
   }
 }
 
+class _BusinessFulfillmentFilterBar extends StatelessWidget {
+  const _BusinessFulfillmentFilterBar({
+    required this.selectedType,
+    required this.onSelected,
+  });
+
+  final String selectedType;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FilterRow(
+      label: 'Type',
+      children: [
+        for (final filter in _businessFulfillmentFilters)
+          ChoiceChip(
+            label: Text(filter.label),
+            selected: selectedType == filter.type,
+            onSelected: (_) => onSelected(filter.type),
+          ),
+      ],
+    );
+  }
+}
+
+class _BusinessStageFilterBar extends StatelessWidget {
+  const _BusinessStageFilterBar({
+    required this.selectedStage,
+    required this.onSelected,
+  });
+
+  final String selectedStage;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FilterRow(
+      label: 'When',
+      children: [
+        for (final filter in _businessStageFilters)
+          ChoiceChip(
+            label: Text(filter.label),
+            selected: selectedStage == filter.key,
+            onSelected: (_) => onSelected(filter.key),
+          ),
+      ],
+    );
+  }
+}
+
+class _BusinessQueueFilterBar extends StatelessWidget {
+  const _BusinessQueueFilterBar({
+    required this.filters,
+    required this.selectedQueue,
+    required this.onSelected,
+  });
+
+  final List<_BusinessFilter> filters;
+  final String selectedQueue;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FilterRow(
+      label: 'Queue',
+      children: [
+        for (final filter in filters)
+          ChoiceChip(
+            label: Text(filter.label),
+            selected: selectedQueue == filter.key,
+            onSelected: (_) => onSelected(filter.key),
+          ),
+      ],
+    );
+  }
+}
+
 class _FilterRow extends StatelessWidget {
   const _FilterRow({required this.label, required this.children});
 
@@ -727,6 +1078,38 @@ class _OrderFilter {
   final String status;
   final String label;
 }
+
+class _BusinessFilter {
+  const _BusinessFilter(this.key, this.label);
+
+  final String key;
+  final String label;
+}
+
+const _businessFulfillmentFilters = <_FulfillmentFilter>[
+  _FulfillmentFilter('delivery', 'Delivery'),
+  _FulfillmentFilter('takeout', 'Takeout'),
+  _FulfillmentFilter('dine_in', 'Dine-in'),
+];
+
+const _businessStageFilters = <_BusinessFilter>[
+  _BusinessFilter('active', 'Active'),
+  _BusinessFilter('upcoming', 'Upcoming'),
+  _BusinessFilter('history', 'History'),
+];
+
+const _businessDeliveryQueueFilters = <_BusinessFilter>[
+  _BusinessFilter('new_order', 'New Order'),
+  _BusinessFilter('ready', 'Ready'),
+  _BusinessFilter('on_the_way', 'On the way'),
+  _BusinessFilter('delivered', 'Delivered'),
+];
+
+const _businessNonDeliveryQueueFilters = <_BusinessFilter>[
+  _BusinessFilter('new_order', 'New Order'),
+  _BusinessFilter('ready', 'Ready'),
+  _BusinessFilter('completed', 'Completed'),
+];
 
 class _DateShortcut {
   const _DateShortcut(this.key, this.label, this.days);
@@ -860,7 +1243,7 @@ class _OrderCard extends StatelessWidget {
     return TweenAnimationBuilder<double>(
       key: ValueKey('order-highlight-${order.id}-$highlightNonce-$highlight'),
       tween: Tween<double>(begin: highlight ? 1 : 0, end: 0),
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 1500),
       curve: Curves.easeOutCubic,
       builder: (context, highlightValue, _) {
         final borderColor = Color.lerp(
@@ -1363,6 +1746,35 @@ bool _statusAllowedForFulfillment(String fulfillmentType, String status) {
 
 bool _isFulfillmentFilter(String? value) {
   return _fulfillmentFilters.any((filter) => filter.type == value);
+}
+
+List<_BusinessFilter> _businessQueueFiltersForFulfillment(
+  String fulfillmentType,
+) {
+  return fulfillmentType == 'delivery'
+      ? _businessDeliveryQueueFilters
+      : _businessNonDeliveryQueueFilters;
+}
+
+bool _businessQueueAllowedForFulfillment(String fulfillmentType, String queue) {
+  return _businessQueueFiltersForFulfillment(
+    fulfillmentType,
+  ).any((filter) => filter.key == queue);
+}
+
+bool _isBusinessFulfillmentFilter(String? value) {
+  return _businessFulfillmentFilters.any((filter) => filter.type == value);
+}
+
+bool _isBusinessStageFilter(String? value) {
+  return _businessStageFilters.any((filter) => filter.key == value);
+}
+
+String _businessStageLabel(String stage) {
+  for (final filter in _businessStageFilters) {
+    if (filter.key == stage) return filter.label;
+  }
+  return 'Active';
 }
 
 DateTimeRange _todayDateRange() {

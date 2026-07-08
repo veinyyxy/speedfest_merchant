@@ -8,6 +8,13 @@ class MerchantFilterPreferences {
   static const ordersDateEnd = 'merchant.orders.date_end';
   static const ordersFulfillmentFilter = 'merchant.orders.fulfillment_filter';
   static const ordersStatusFilter = 'merchant.orders.status_filter';
+  static const ordersFilterMode = 'merchant.orders.filter_mode';
+  static const ordersBusinessFulfillmentFilter =
+      'merchant.orders.business_fulfillment_filter';
+  static const ordersBusinessStageFilter =
+      'merchant.orders.business_stage_filter';
+  static const ordersBusinessQueueFilter =
+      'merchant.orders.business_queue_filter';
 
   static const productsStatusFilter = 'merchant.products.status_filter';
   static const productsTypeFilter = 'merchant.products.type_filter';
