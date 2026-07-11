@@ -401,7 +401,11 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     final status = order.normalizedStatus;
     return switch (_businessQueueFilter) {
       'new_order' =>
-        status == 'paid' || status == 'accepted' || status == 'preparing',
+        (order.isAwaitingInStoreCollection && status == 'created') ||
+            status == 'paid' ||
+            status == 'accepted' ||
+            status == 'preparing',
+      'awaiting_collection' => order.isAwaitingInStoreCollection,
       'ready' => status == 'ready',
       'on_the_way' =>
         order.isDelivery &&
@@ -425,12 +429,19 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     if (_statusFilter == 'pending_payment') {
       return order.isPendingPayment;
     }
+    if (_statusFilter == 'awaiting_collection') {
+      return order.isAwaitingInStoreCollection;
+    }
 
     return order.normalizedStatus == _statusFilter;
   }
 
   bool _needsAcceptanceReminder(MerchantOrder order) {
-    if (order.normalizedStatus != 'paid') return false;
+    final needsAcceptance =
+        order.normalizedStatus == 'paid' ||
+        (order.normalizedStatus == 'created' &&
+            order.isAwaitingInStoreCollection);
+    if (!needsAcceptance) return false;
 
     final referenceTime = order.updatedAt ?? order.createdAt;
     if (referenceTime == null) return false;
@@ -507,6 +518,45 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     }
   }
 
+  Future<void> _collectInStorePayment(MerchantOrder order) async {
+    final request = await showDialog<_InStoreCollectionRequest>(
+      context: context,
+      builder: (_) => _InStoreCollectionDialog(order: order),
+    );
+    if (request == null || !mounted) return;
+
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null) return;
+
+    final ordersProvider = context.read<MerchantOrdersProvider>();
+    final collectedOrder = await ordersProvider.collectInStorePayment(
+      apiClient: session.apiClient,
+      token: token,
+      orderId: order.id,
+      paymentMethod: request.paymentMethod,
+      collectionReference: request.collectionReference,
+    );
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          collectedOrder == null
+              ? ordersProvider.errorMessage ??
+                    'In-store payment could not be recorded.'
+              : '${order.displayId} payment recorded as ${request.methodLabel}.',
+        ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: collectedOrder == null ? Colors.red.shade700 : null,
+      ),
+    );
+
+    if (collectedOrder != null) {
+      await _fetchOrders();
+    }
+  }
+
   Future<void> _showDetail(MerchantOrder order) async {
     await _showDetailByOrderId(order.id);
   }
@@ -524,7 +574,9 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
       ),
       builder: (_) => MerchantOrderDetailSheet(
         order: detail,
-        onSyncPaymentRecords: _syncPaymentRecords,
+        onSyncPaymentRecords: detail.isInStorePayment
+            ? null
+            : _syncPaymentRecords,
       ),
     );
   }
@@ -669,6 +721,8 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     if (_matchesStatusFilter(order)) return _statusFilter;
     final nextStatus = order.isPendingPayment
         ? 'pending_payment'
+        : order.isAwaitingInStoreCollection
+        ? 'awaiting_collection'
         : order.normalizedStatus;
     final nextFulfillment = _fulfillmentFilterForOrder(order);
     return _statusAllowedForFulfillment(nextFulfillment, nextStatus)
@@ -698,6 +752,12 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   String? _businessQueueForOrder(MerchantOrder order) {
     final status = order.normalizedStatus;
     final fulfillment = _businessFulfillmentForOrder(order);
+    if (order.isAwaitingInStoreCollection && status == 'completed') {
+      return 'awaiting_collection';
+    }
+    if (order.isAwaitingInStoreCollection && status == 'created') {
+      return 'new_order';
+    }
     if (status == 'paid' || status == 'accepted' || status == 'preparing') {
       return 'new_order';
     }
@@ -816,6 +876,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
               onOpenDetail: _showDetail,
               onUpdateStatus: _updateStatus,
               onRefund: _refundOrder,
+              onCollectInStorePayment: _collectInStorePayment,
             ),
           ),
         ],
@@ -1108,6 +1169,7 @@ const _businessDeliveryQueueFilters = <_BusinessFilter>[
 const _businessNonDeliveryQueueFilters = <_BusinessFilter>[
   _BusinessFilter('new_order', 'New Order'),
   _BusinessFilter('ready', 'Ready'),
+  _BusinessFilter('awaiting_collection', 'Collect Payment'),
   _BusinessFilter('completed', 'Completed'),
 ];
 
@@ -1142,6 +1204,7 @@ class _OrdersBody extends StatelessWidget {
     required this.onOpenDetail,
     required this.onUpdateStatus,
     required this.onRefund,
+    required this.onCollectInStorePayment,
   });
 
   final MerchantOrdersProvider provider;
@@ -1155,6 +1218,7 @@ class _OrdersBody extends StatelessWidget {
   final ValueChanged<MerchantOrder> onOpenDetail;
   final void Function(MerchantOrder order, String status) onUpdateStatus;
   final ValueChanged<MerchantOrder> onRefund;
+  final ValueChanged<MerchantOrder> onCollectInStorePayment;
 
   @override
   Widget build(BuildContext context) {
@@ -1206,6 +1270,7 @@ class _OrdersBody extends StatelessWidget {
               onOpenDetail: () => onOpenDetail(order),
               onUpdateStatus: (status) => onUpdateStatus(order, status),
               onRefund: () => onRefund(order),
+              onCollectInStorePayment: () => onCollectInStorePayment(order),
             ),
         ],
       ),
@@ -1224,6 +1289,7 @@ class _OrderCard extends StatelessWidget {
     required this.onOpenDetail,
     required this.onUpdateStatus,
     required this.onRefund,
+    required this.onCollectInStorePayment,
   });
 
   final MerchantOrder order;
@@ -1234,6 +1300,7 @@ class _OrderCard extends StatelessWidget {
   final VoidCallback onOpenDetail;
   final ValueChanged<String> onUpdateStatus;
   final VoidCallback onRefund;
+  final VoidCallback onCollectInStorePayment;
 
   @override
   Widget build(BuildContext context) {
@@ -1343,6 +1410,13 @@ class _OrderCard extends StatelessWidget {
                       label: const Text('Details'),
                     ),
                     const Spacer(),
+                    if (order.canCollectInStorePayment)
+                      IconButton(
+                        tooltip: 'Collect payment',
+                        onPressed: isUpdating ? null : onCollectInStorePayment,
+                        icon: const Icon(Icons.point_of_sale_outlined),
+                        color: Colors.green.shade700,
+                      ),
                     for (final action in destructiveActions) ...[
                       TextButton(
                         onPressed: isUpdating
@@ -1404,7 +1478,11 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _statusColor(
-      order.isPendingPayment ? 'pending_payment' : order.status,
+      order.isPendingPayment
+          ? 'pending_payment'
+          : order.isAwaitingInStoreCollection
+          ? 'awaiting_collection'
+          : order.status,
       Theme.of(context).colorScheme.primary,
     );
     return Container(
@@ -1573,6 +1651,130 @@ class _RefundRequest {
   final String note;
 }
 
+class _InStoreCollectionRequest {
+  const _InStoreCollectionRequest({
+    required this.paymentMethod,
+    required this.collectionReference,
+  });
+
+  final String paymentMethod;
+  final String collectionReference;
+
+  String get methodLabel => paymentMethod == 'pos_card' ? 'POS card' : 'cash';
+}
+
+class _InStoreCollectionDialog extends StatefulWidget {
+  const _InStoreCollectionDialog({required this.order});
+
+  final MerchantOrder order;
+
+  @override
+  State<_InStoreCollectionDialog> createState() =>
+      _InStoreCollectionDialogState();
+}
+
+class _InStoreCollectionDialogState extends State<_InStoreCollectionDialog> {
+  late String _paymentMethod;
+  final _referenceController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _paymentMethod = widget.order.inStoreCashEnabled ? 'cash' : 'pos_card';
+  }
+
+  @override
+  void dispose() {
+    _referenceController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final order = widget.order;
+    final hasAvailableMethod = order.hasAvailableInStoreCollectionMethod;
+
+    return AlertDialog(
+      title: const Text('Collect payment'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              order.displayId,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${order.currency} \$${order.totalAmount.toStringAsFixed(2)} · ${order.inStorePaymentLabel}',
+              style: TextStyle(color: Colors.grey.shade700),
+            ),
+            const SizedBox(height: 14),
+            if (!hasAvailableMethod)
+              Text(
+                'No in-store payment method is enabled for this order.',
+                style: TextStyle(color: Colors.red.shade700),
+              )
+            else ...[
+              if (order.inStoreCashEnabled)
+                RadioListTile<String>(
+                  contentPadding: EdgeInsets.zero,
+                  value: 'cash',
+                  groupValue: _paymentMethod,
+                  title: const Text('Cash'),
+                  onChanged: (value) {
+                    if (value != null) setState(() => _paymentMethod = value);
+                  },
+                ),
+              if (order.inStorePosCardEnabled)
+                RadioListTile<String>(
+                  contentPadding: EdgeInsets.zero,
+                  value: 'pos_card',
+                  groupValue: _paymentMethod,
+                  title: const Text('POS card'),
+                  onChanged: (value) {
+                    if (value != null) setState(() => _paymentMethod = value);
+                  },
+                ),
+              if (_paymentMethod == 'pos_card') ...[
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _referenceController,
+                  maxLength: 180,
+                  decoration: const InputDecoration(
+                    labelText: 'POS reference (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: hasAvailableMethod
+              ? () => Navigator.of(context).pop(
+                  _InStoreCollectionRequest(
+                    paymentMethod: _paymentMethod,
+                    collectionReference: _referenceController.text.trim(),
+                  ),
+                )
+              : null,
+          icon: const Icon(Icons.check_circle_outline),
+          label: const Text('Record payment'),
+        ),
+      ],
+    );
+  }
+}
+
 class _StateMessage extends StatelessWidget {
   const _StateMessage({
     required this.icon,
@@ -1629,6 +1831,10 @@ class _OrderAction {
 
 _OrderAction? _primaryActionFor(MerchantOrder order) {
   switch (order.status) {
+    case 'created':
+      return order.isInStorePayment
+          ? const _OrderAction('accepted', 'Accept')
+          : null;
     case 'paid':
       return const _OrderAction('accepted', 'Accept');
     case 'accepted':
@@ -1647,7 +1853,10 @@ _OrderAction? _primaryActionFor(MerchantOrder order) {
 }
 
 List<_OrderAction> _destructiveActionsFor(MerchantOrder order) {
-  if (order.isPendingPayment) {
+  if (order.isPendingPayment ||
+      (order.isInStorePayment &&
+          order.isAwaitingInStoreCollection &&
+          order.normalizedStatus == 'created')) {
     return const [_OrderAction('cancelled', 'Cancel')];
   }
 
@@ -1672,6 +1881,7 @@ Color _statusColor(String status, Color fallback) {
     case 'created':
     case 'pending':
     case 'pending_payment':
+    case 'awaiting_collection':
       return Colors.orange.shade800;
     case 'cancelled':
     case 'partially_refunded':
@@ -1691,6 +1901,7 @@ Color _statusColor(String status, Color fallback) {
 const _allStatusFilters = <_OrderFilter>[
   _OrderFilter('all', 'All'),
   _OrderFilter('pending_payment', 'Pending payment'),
+  _OrderFilter('awaiting_collection', 'Awaiting collection'),
   _OrderFilter('paid', 'Paid'),
   _OrderFilter('accepted', 'Accepted'),
   _OrderFilter('preparing', 'Preparing'),
@@ -1720,6 +1931,7 @@ const _deliveryStatusFilters = <_OrderFilter>[
 const _nonDeliveryStatusFilters = <_OrderFilter>[
   _OrderFilter('all', 'All'),
   _OrderFilter('pending_payment', 'Pending payment'),
+  _OrderFilter('awaiting_collection', 'Awaiting collection'),
   _OrderFilter('paid', 'Paid'),
   _OrderFilter('accepted', 'Accepted'),
   _OrderFilter('preparing', 'Preparing'),

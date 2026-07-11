@@ -13,6 +13,12 @@ class MerchantOrder {
     required this.customerPhone,
     required this.customerEmail,
     required this.paymentStatus,
+    required this.paymentChannel,
+    required this.paymentMethod,
+    required this.collectionTiming,
+    required this.collectedAt,
+    required this.inStoreCashEnabled,
+    required this.inStorePosCardEnabled,
     required this.refundedAmount,
     required this.refundableAmount,
     required this.shippingAddress,
@@ -37,6 +43,12 @@ class MerchantOrder {
   final String customerPhone;
   final String customerEmail;
   final String paymentStatus;
+  final String paymentChannel;
+  final String paymentMethod;
+  final String collectionTiming;
+  final DateTime? collectedAt;
+  final bool inStoreCashEnabled;
+  final bool inStorePosCardEnabled;
   final double refundedAmount;
   final double refundableAmount;
   final String shippingAddress;
@@ -50,6 +62,10 @@ class MerchantOrder {
   String get displayId => id.isEmpty ? 'Order' : 'Order #${_shortId(id)}';
   String get normalizedStatus => status.trim().toLowerCase();
   String get normalizedPaymentStatus => paymentStatus.trim().toLowerCase();
+  String get normalizedPaymentChannel => paymentChannel.trim().toLowerCase();
+  String get normalizedPaymentMethod => paymentMethod.trim().toLowerCase();
+  String get normalizedCollectionTiming =>
+      collectionTiming.trim().toLowerCase();
   String get normalizedFulfillmentType {
     final normalized = fulfillmentType.trim().toLowerCase().replaceAll(
       '-',
@@ -62,24 +78,86 @@ class MerchantOrder {
   bool get isDelivery => normalizedFulfillmentType == 'delivery';
   bool get isTakeout => normalizedFulfillmentType == 'takeout';
   bool get isDineIn => normalizedFulfillmentType == 'dine_in';
-  bool get isPendingPayment =>
-      normalizedStatus == 'created' || normalizedPaymentStatus == 'pending';
+  bool get isInStorePayment => normalizedPaymentChannel == 'in_store';
+  bool get isAwaitingInStoreCollection =>
+      isInStorePayment && normalizedPaymentStatus == 'awaiting_collection';
+  bool get isPendingOnlinePayment =>
+      !isInStorePayment &&
+      (normalizedStatus == 'created' || normalizedPaymentStatus == 'pending');
+  bool get isPendingPayment => isPendingOnlinePayment;
+  bool get canCollectInStorePayment {
+    if (!isAwaitingInStoreCollection) return false;
+    return switch (normalizedCollectionTiming) {
+      'before_fulfillment' => const {
+        'created',
+        'accepted',
+        'preparing',
+        'ready',
+        'completed',
+      }.contains(normalizedStatus),
+      'at_pickup' => const {'ready', 'completed'}.contains(normalizedStatus),
+      _ => normalizedStatus == 'completed',
+    };
+  }
+
+  bool get hasAvailableInStoreCollectionMethod =>
+      inStoreCashEnabled || inStorePosCardEnabled;
   String get fulfillmentLabel => _humanize(fulfillmentType);
-  String get statusLabel =>
-      isPendingPayment ? 'Pending payment' : _humanize(status);
+  String get inStorePaymentLabel =>
+      isDineIn ? 'Pay at counter' : 'Pay at store';
+  String get statusLabel {
+    if (isPendingPayment) return 'Pending payment';
+    if (isAwaitingInStoreCollection && normalizedStatus == 'created') {
+      return 'New order';
+    }
+    return _humanize(status);
+  }
+
   String get displayStatusLabel => statusLabel;
   String get paymentStatusLabel => _humanize(paymentStatus);
-  String get paymentDetailStatusLabel => paymentStatusLabel.isEmpty
-      ? 'Not started (no payment record)'
-      : paymentStatusLabel;
+  String get paymentMethodLabel => switch (normalizedPaymentMethod) {
+    'cash' => 'Cash',
+    'pos_card' => 'POS card',
+    _ => '',
+  };
+  String get collectionTimingLabel => switch (normalizedCollectionTiming) {
+    'before_fulfillment' => 'Before fulfillment',
+    'at_pickup' => 'At pickup',
+    'after_service' => 'After service',
+    _ => '',
+  };
+  String get paymentDetailStatusLabel {
+    if (isInStorePayment) {
+      if (isAwaitingInStoreCollection) {
+        return '$inStorePaymentLabel · Awaiting collection';
+      }
+      if (normalizedPaymentStatus == 'paid') {
+        final method = paymentMethodLabel;
+        return method.isEmpty ? 'In-store payment received' : '$method paid';
+      }
+      return '$inStorePaymentLabel · ${paymentStatusLabel.isEmpty ? 'Status unavailable' : paymentStatusLabel}';
+    }
+    return paymentStatusLabel.isEmpty
+        ? 'Not started (no payment record)'
+        : paymentStatusLabel;
+  }
+
   bool get hasRefund => refundedAmount > 0;
-  bool get canRefund => refundableAmount > 0 && !isPendingPayment;
+  bool get canRefund =>
+      refundableAmount > 0 &&
+      (normalizedPaymentStatus == 'paid' ||
+          normalizedPaymentStatus == 'refunded');
   bool get isReviewed => review != null;
   String get reviewComment => review?.comment ?? '';
 
   factory MerchantOrder.fromJson(Map<String, dynamic> json) {
     final customer = _asMap(_firstValue(json, const ['customer', 'user']));
     final pricing = _asMap(_firstValue(json, const ['pricing']));
+    final payment = _asMap(_firstValue(json, const ['payment']));
+    final inStoreMethods = _asMap(
+      _firstValue(json, const ['in_store_methods', 'inStoreMethods']) ??
+          _firstValue(payment, const ['in_store_methods', 'inStoreMethods']),
+    );
     final reviewData = _asMap(
       _firstValue(json, const ['review', 'order_review', 'orderReview']),
     );
@@ -132,10 +210,49 @@ class MerchantOrder {
         'phone',
       ]),
       customerEmail: _firstString(customer, const ['email']),
-      paymentStatus: _firstString(json, const [
-        'payment_status',
-        'paymentStatus',
-      ]),
+      paymentStatus: _firstString(
+        json,
+        const ['payment_status', 'paymentStatus'],
+        fallback: _firstString(payment, const [
+          'payment_status',
+          'paymentStatus',
+        ]),
+      ),
+      paymentChannel: _firstString(
+        json,
+        const ['payment_channel', 'paymentChannel'],
+        fallback: _firstString(payment, const [
+          'payment_channel',
+          'paymentChannel',
+        ], fallback: 'online'),
+      ),
+      paymentMethod: _firstString(
+        json,
+        const ['payment_method', 'paymentMethod'],
+        fallback: _firstString(payment, const [
+          'payment_method',
+          'paymentMethod',
+        ]),
+      ),
+      collectionTiming: _firstString(
+        json,
+        const ['collection_timing', 'collectionTiming'],
+        fallback: _firstString(payment, const [
+          'collection_timing',
+          'collectionTiming',
+        ]),
+      ),
+      collectedAt: _parseDate(
+        _firstValue(json, const ['collected_at', 'collectedAt']) ??
+            _firstValue(payment, const ['collected_at', 'collectedAt']),
+      ),
+      inStoreCashEnabled: _firstBool(inStoreMethods, const [
+        'cash',
+      ], fallback: true),
+      inStorePosCardEnabled: _firstBool(inStoreMethods, const [
+        'pos_card',
+        'posCard',
+      ], fallback: true),
       refundedAmount: _firstDoubleWithFallback(
         json,
         const ['refunded_amount', 'refundedAmount'],
@@ -415,6 +532,20 @@ int _firstInt(
   final value = _firstValue(json, keys);
   if (value is num) return value.toInt();
   return int.tryParse(value?.toString() ?? '') ?? fallback;
+}
+
+bool _firstBool(
+  Map<String, dynamic> json,
+  List<String> keys, {
+  required bool fallback,
+}) {
+  final value = _firstValue(json, keys);
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  final normalized = value?.toString().trim().toLowerCase() ?? '';
+  if (['true', '1', 'yes'].contains(normalized)) return true;
+  if (['false', '0', 'no'].contains(normalized)) return false;
+  return fallback;
 }
 
 Map<String, dynamic> _asMap(dynamic value) {

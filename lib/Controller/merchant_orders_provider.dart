@@ -169,6 +169,50 @@ class MerchantOrdersProvider with ChangeNotifier {
     }
   }
 
+  Future<MerchantOrder?> collectInStorePayment({
+    required SignedApiClient apiClient,
+    required String token,
+    required String orderId,
+    required String paymentMethod,
+    String? collectionReference,
+  }) async {
+    _isUpdating = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final body = <String, dynamic>{
+        'order_id': orderId,
+        'payment_method': paymentMethod,
+      };
+      if (collectionReference != null &&
+          collectionReference.trim().isNotEmpty) {
+        body['collection_reference'] = collectionReference.trim();
+      }
+
+      final rawResponse = await apiClient.post(
+        MerchantServiceConfig.merchantOrderInStorePaymentCollectPath,
+        body,
+        token: token,
+      );
+      final response = Map<String, dynamic>.from(rawResponse as Map);
+      final order = MerchantOrder.fromJson(
+        Map<String, dynamic>.from(response['order']),
+      );
+      _replaceOrder(order);
+      return order;
+    } on AppException catch (e) {
+      _errorMessage = e.message;
+      return null;
+    } catch (e) {
+      _errorMessage = 'Unable to record in-store payment: $e';
+      return null;
+    } finally {
+      _isUpdating = false;
+      notifyListeners();
+    }
+  }
+
   Future<MerchantOrder?> syncPaymentRecords({
     required SignedApiClient apiClient,
     required String token,

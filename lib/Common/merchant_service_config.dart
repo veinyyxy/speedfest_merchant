@@ -26,6 +26,8 @@ class MerchantServiceConfig {
   static const merchantOrderRefundPath = '/api/merchant/orders/refund';
   static const merchantOrderPaymentSyncPath =
       '/api/merchant/orders/payments/sync';
+  static const merchantOrderInStorePaymentCollectPath =
+      '/api/merchant/orders/in-store-payment/collect';
   static const merchantDeviceTokenPath =
       '/api/merchant/notifications/device-token';
   static const merchantDeviceTokenDeactivatePath =

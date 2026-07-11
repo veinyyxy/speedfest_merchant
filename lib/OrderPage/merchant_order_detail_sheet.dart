@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../Models/merchant_order.dart';
 
@@ -91,6 +92,18 @@ class _MerchantOrderDetailSheetState extends State<MerchantOrderDetailSheet> {
                   ? null
                   : _syncPaymentRecords,
             ),
+            if (order.isInStorePayment) ...[
+              _DetailRow(
+                label: 'Payment route',
+                value: order.inStorePaymentLabel,
+              ),
+              _DetailRow(
+                label: 'Collect when',
+                value: order.collectionTimingLabel,
+              ),
+              if (order.paymentMethodLabel.isNotEmpty)
+                _DetailRow(label: 'Method', value: order.paymentMethodLabel),
+            ],
             _DetailRow(label: 'Customer', value: order.customerName),
             _DetailRow(label: 'Phone', value: order.customerPhone),
             _DetailRow(label: 'Email', value: order.customerEmail),

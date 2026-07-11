@@ -41,6 +41,14 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
   String _currency = 'CAD';
   String _logoAssetId = '';
   bool _publicHolidaysClosedByDefault = false;
+  bool _dineInInStoreEnabled = true;
+  bool _dineInCashEnabled = true;
+  bool _dineInPosCardEnabled = true;
+  String _dineInCollectionTiming = 'after_service';
+  bool _takeoutInStoreEnabled = true;
+  bool _takeoutCashEnabled = true;
+  bool _takeoutPosCardEnabled = true;
+  String _takeoutCollectionTiming = 'at_pickup';
   bool _didLoad = false;
 
   @override
@@ -131,6 +139,14 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
       _publicHolidaysClosedByDefault = _readBool(
         publicHolidays['closed_by_default'],
       );
+      _dineInInStoreEnabled = config.inStorePayment.dineIn.enabled;
+      _dineInCashEnabled = config.inStorePayment.dineIn.cashEnabled;
+      _dineInPosCardEnabled = config.inStorePayment.dineIn.posCardEnabled;
+      _dineInCollectionTiming = config.inStorePayment.dineIn.collectionTiming;
+      _takeoutInStoreEnabled = config.inStorePayment.takeout.enabled;
+      _takeoutCashEnabled = config.inStorePayment.takeout.cashEnabled;
+      _takeoutPosCardEnabled = config.inStorePayment.takeout.posCardEnabled;
+      _takeoutCollectionTiming = config.inStorePayment.takeout.collectionTiming;
 
       _replaceWeeklyIntervals(nextWeekly);
       _replaceSpecialDates(
@@ -154,6 +170,17 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
     final maxMinutes = _readInt(_pickupMaxController.text);
     if (maxMinutes < minMinutes) {
       _showMessage('Pickup max minutes must be greater than min minutes.');
+      return;
+    }
+    if ((_dineInInStoreEnabled &&
+            !_dineInCashEnabled &&
+            !_dineInPosCardEnabled) ||
+        (_takeoutInStoreEnabled &&
+            !_takeoutCashEnabled &&
+            !_takeoutPosCardEnabled)) {
+      _showMessage(
+        'Enable cash or POS card for each enabled in-store payment option.',
+      );
       return;
     }
 
@@ -214,6 +241,20 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
       pickupEta: MerchantPickupEtaConfig(
         minMinutes: minMinutes,
         maxMinutes: maxMinutes,
+      ),
+      inStorePayment: MerchantInStorePaymentConfig(
+        dineIn: MerchantInStorePaymentOption(
+          enabled: _dineInInStoreEnabled,
+          collectionTiming: _dineInCollectionTiming,
+          cashEnabled: _dineInCashEnabled,
+          posCardEnabled: _dineInPosCardEnabled,
+        ),
+        takeout: MerchantInStorePaymentOption(
+          enabled: _takeoutInStoreEnabled,
+          collectionTiming: _takeoutCollectionTiming,
+          cashEnabled: _takeoutCashEnabled,
+          posCardEnabled: _takeoutPosCardEnabled,
+        ),
       ),
     );
 
@@ -812,6 +853,52 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
                   Text(
                     'Display: ${_pickupDisplay()}',
                     style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _SettingsCard(
+                title: 'In-store Payment',
+                children: [
+                  Text(
+                    'Customers can still pay online. These options control orders that are settled at the restaurant.',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                  const SizedBox(height: 10),
+                  _InStorePaymentOptionEditor(
+                    title: 'Dine-in',
+                    buyerLabel: 'Pay at counter',
+                    enabled: _dineInInStoreEnabled,
+                    cashEnabled: _dineInCashEnabled,
+                    posCardEnabled: _dineInPosCardEnabled,
+                    collectionTiming: _dineInCollectionTiming,
+                    isBusy: isBusy,
+                    onEnabledChanged: (value) =>
+                        setState(() => _dineInInStoreEnabled = value),
+                    onCashChanged: (value) =>
+                        setState(() => _dineInCashEnabled = value),
+                    onPosCardChanged: (value) =>
+                        setState(() => _dineInPosCardEnabled = value),
+                    onTimingChanged: (value) =>
+                        setState(() => _dineInCollectionTiming = value),
+                  ),
+                  const Divider(height: 28),
+                  _InStorePaymentOptionEditor(
+                    title: 'Takeout',
+                    buyerLabel: 'Pay at store',
+                    enabled: _takeoutInStoreEnabled,
+                    cashEnabled: _takeoutCashEnabled,
+                    posCardEnabled: _takeoutPosCardEnabled,
+                    collectionTiming: _takeoutCollectionTiming,
+                    isBusy: isBusy,
+                    onEnabledChanged: (value) =>
+                        setState(() => _takeoutInStoreEnabled = value),
+                    onCashChanged: (value) =>
+                        setState(() => _takeoutCashEnabled = value),
+                    onPosCardChanged: (value) =>
+                        setState(() => _takeoutPosCardEnabled = value),
+                    onTimingChanged: (value) =>
+                        setState(() => _takeoutCollectionTiming = value),
                   ),
                 ],
               ),
@@ -1502,6 +1589,97 @@ class _IntegerField extends StatelessWidget {
       ),
       onChanged: (_) => onChanged?.call(),
       validator: (value) => _integerRangeValidator(value, min: 0),
+    );
+  }
+}
+
+class _InStorePaymentOptionEditor extends StatelessWidget {
+  const _InStorePaymentOptionEditor({
+    required this.title,
+    required this.buyerLabel,
+    required this.enabled,
+    required this.cashEnabled,
+    required this.posCardEnabled,
+    required this.collectionTiming,
+    required this.isBusy,
+    required this.onEnabledChanged,
+    required this.onCashChanged,
+    required this.onPosCardChanged,
+    required this.onTimingChanged,
+  });
+
+  final String title;
+  final String buyerLabel;
+  final bool enabled;
+  final bool cashEnabled;
+  final bool posCardEnabled;
+  final String collectionTiming;
+  final bool isBusy;
+  final ValueChanged<bool> onEnabledChanged;
+  final ValueChanged<bool> onCashChanged;
+  final ValueChanged<bool> onPosCardChanged;
+  final ValueChanged<String> onTimingChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = enabled && !isBusy;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(buyerLabel),
+          value: enabled,
+          onChanged: isBusy ? null : onEnabledChanged,
+        ),
+        if (enabled) ...[
+          DropdownButtonFormField<String>(
+            value: collectionTiming,
+            decoration: const InputDecoration(
+              labelText: 'Collection timing',
+              border: OutlineInputBorder(),
+            ),
+            items: const [
+              DropdownMenuItem(
+                value: 'before_fulfillment',
+                child: Text('Before fulfillment'),
+              ),
+              DropdownMenuItem(value: 'at_pickup', child: Text('At pickup')),
+              DropdownMenuItem(
+                value: 'after_service',
+                child: Text('After service'),
+              ),
+            ],
+            onChanged: active
+                ? (value) {
+                    if (value != null) onTimingChanged(value);
+                  }
+                : null,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Available methods',
+            style: TextStyle(color: Colors.grey.shade700),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Cash'),
+            value: cashEnabled,
+            onChanged: active ? onCashChanged : null,
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('POS card'),
+            value: posCardEnabled,
+            onChanged: active ? onPosCardChanged : null,
+          ),
+        ],
+      ],
     );
   }
 }

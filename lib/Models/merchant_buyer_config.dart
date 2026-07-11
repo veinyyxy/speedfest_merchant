@@ -4,12 +4,14 @@ class MerchantBuyerConfig {
     required this.pricing,
     required this.businessHours,
     required this.pickupEta,
+    required this.inStorePayment,
   });
 
   final MerchantStoreProfileConfig storeProfile;
   final MerchantPricingConfig pricing;
   final MerchantBusinessHoursConfig businessHours;
   final MerchantPickupEtaConfig pickupEta;
+  final MerchantInStorePaymentConfig inStorePayment;
 
   factory MerchantBuyerConfig.defaults() {
     return MerchantBuyerConfig(
@@ -23,6 +25,7 @@ class MerchantBuyerConfig {
       ),
       businessHours: MerchantBusinessHoursConfig.defaults(),
       pickupEta: const MerchantPickupEtaConfig(minMinutes: 15, maxMinutes: 20),
+      inStorePayment: MerchantInStorePaymentConfig.defaults(),
     );
   }
 
@@ -31,6 +34,7 @@ class MerchantBuyerConfig {
     final pricing = _readMap(json['pricing']);
     final operations = _readMap(json['operations']);
     final fulfillment = _readMap(json['fulfillment']);
+    final payment = _readMap(json['payment']);
 
     return MerchantBuyerConfig(
       storeProfile: MerchantStoreProfileConfig.fromJson(
@@ -48,6 +52,9 @@ class MerchantBuyerConfig {
       pickupEta: MerchantPickupEtaConfig.fromJson(
         _readMap(fulfillment['pickup_eta'] ?? fulfillment['pickupEta']),
       ),
+      inStorePayment: MerchantInStorePaymentConfig.fromJson(
+        _readMap(payment['in_store'] ?? payment['inStore']),
+      ),
     );
   }
 
@@ -57,6 +64,96 @@ class MerchantBuyerConfig {
       'pricing': pricing.toJson(),
       'operations': {'business_hours': businessHours.toJson()},
       'fulfillment': {'pickup_eta': pickupEta.toJson()},
+      'payment': {'in_store': inStorePayment.toJson()},
+    };
+  }
+}
+
+class MerchantInStorePaymentConfig {
+  const MerchantInStorePaymentConfig({
+    required this.dineIn,
+    required this.takeout,
+  });
+
+  final MerchantInStorePaymentOption dineIn;
+  final MerchantInStorePaymentOption takeout;
+
+  factory MerchantInStorePaymentConfig.defaults() {
+    return const MerchantInStorePaymentConfig(
+      dineIn: MerchantInStorePaymentOption(
+        enabled: true,
+        collectionTiming: 'after_service',
+        cashEnabled: true,
+        posCardEnabled: true,
+      ),
+      takeout: MerchantInStorePaymentOption(
+        enabled: true,
+        collectionTiming: 'at_pickup',
+        cashEnabled: true,
+        posCardEnabled: true,
+      ),
+    );
+  }
+
+  factory MerchantInStorePaymentConfig.fromJson(Map<String, dynamic> json) {
+    final fallback = MerchantInStorePaymentConfig.defaults();
+    return MerchantInStorePaymentConfig(
+      dineIn: MerchantInStorePaymentOption.fromJson(
+        _readMap(json['dine_in'] ?? json['dineIn']),
+        fallback: fallback.dineIn,
+      ),
+      takeout: MerchantInStorePaymentOption.fromJson(
+        _readMap(json['takeout']),
+        fallback: fallback.takeout,
+      ),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {'dine_in': dineIn.toJson(), 'takeout': takeout.toJson()};
+  }
+}
+
+class MerchantInStorePaymentOption {
+  const MerchantInStorePaymentOption({
+    required this.enabled,
+    required this.collectionTiming,
+    required this.cashEnabled,
+    required this.posCardEnabled,
+  });
+
+  final bool enabled;
+  final String collectionTiming;
+  final bool cashEnabled;
+  final bool posCardEnabled;
+
+  factory MerchantInStorePaymentOption.fromJson(
+    Map<String, dynamic> json, {
+    required MerchantInStorePaymentOption fallback,
+  }) {
+    final methods = _readMap(json['methods']);
+    final timing = _firstString(json, const [
+      'collection_timing',
+      'collectionTiming',
+    ], fallback.collectionTiming);
+    return MerchantInStorePaymentOption(
+      enabled: _firstBool(json, const ['enabled'], fallback.enabled),
+      collectionTiming: _isCollectionTiming(timing)
+          ? timing
+          : fallback.collectionTiming,
+      cashEnabled: _firstBool(methods, const ['cash'], fallback.cashEnabled),
+      posCardEnabled: _firstBool(methods, const [
+        'pos_card',
+        'posCard',
+      ], fallback.posCardEnabled),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'enabled': enabled,
+      'collection_timing': collectionTiming,
+      'methods': {'cash': cashEnabled, 'pos_card': posCardEnabled},
     };
   }
 }
@@ -399,4 +496,24 @@ int _firstInt(Map<String, dynamic> json, List<String> keys, int fallback) {
     if (parsed != null) return parsed;
   }
   return fallback;
+}
+
+bool _firstBool(Map<String, dynamic> json, List<String> keys, bool fallback) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final normalized = value?.toString().trim().toLowerCase() ?? '';
+    if (['true', '1', 'yes'].contains(normalized)) return true;
+    if (['false', '0', 'no'].contains(normalized)) return false;
+  }
+  return fallback;
+}
+
+bool _isCollectionTiming(String value) {
+  return const {
+    'before_fulfillment',
+    'at_pickup',
+    'after_service',
+  }.contains(value);
 }
