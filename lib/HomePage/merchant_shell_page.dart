@@ -34,6 +34,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
   static const _notificationPollLimit = 20;
   static const _notificationPollEventTypes = {
     'new_paid_order',
+    'new_in_store_order',
     'customer_cancelled_order',
   };
 
