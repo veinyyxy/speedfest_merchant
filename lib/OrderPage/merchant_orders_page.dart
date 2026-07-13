@@ -7,8 +7,12 @@ import '../Common/merchant_filter_preferences.dart';
 import '../Common/merchant_navigation_intent.dart';
 import '../Controller/merchant_notifications_provider.dart';
 import '../Controller/merchant_orders_provider.dart';
+import '../Controller/merchant_printers_provider.dart';
 import '../Controller/merchant_session_provider.dart';
+import '../Controller/merchant_settings_provider.dart';
+import '../Models/merchant_buyer_config.dart';
 import '../Models/merchant_order.dart';
+import '../PrinterPage/merchant_printers_page.dart';
 import 'merchant_order_detail_sheet.dart';
 
 class MerchantOrdersPage extends StatefulWidget {
@@ -574,6 +578,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
       ),
       builder: (_) => MerchantOrderDetailSheet(
         order: detail,
+        onPrintOrder: _printOrder,
         onSyncPaymentRecords: detail.isInStorePayment
             ? null
             : _syncPaymentRecords,
@@ -591,6 +596,86 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
       token: token,
       orderId: orderId,
     );
+  }
+
+  Future<void> _printOrder(MerchantOrder order) async {
+    final printersProvider = context.read<MerchantPrintersProvider>();
+    if (printersProvider.defaultPrinter == null) {
+      final openPrinters = await _confirmOpenPrinters();
+      if (!mounted) return;
+      if (openPrinters) {
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const MerchantPrintersPage()),
+        );
+      }
+      return;
+    }
+
+    final detail = await _fetchOrderDetailById(order.id);
+    if (!mounted || detail == null) return;
+
+    final storeProfile = await _storeProfileForPrint();
+    if (!mounted) return;
+
+    final ok = await printersProvider.printOrder(
+      order: detail,
+      storeProfile: storeProfile,
+    );
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Receipt sent for ${detail.displayId}.'
+              : printersProvider.errorMessage ??
+                    'Receipt could not be printed.',
+        ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: ok ? null : Colors.red.shade700,
+      ),
+    );
+  }
+
+  Future<bool> _confirmOpenPrinters() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('No printer selected'),
+        content: const Text(
+          'Add or connect a receipt printer before printing orders.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.print_outlined),
+            label: const Text('Manage printers'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<MerchantStoreProfileConfig?> _storeProfileForPrint() async {
+    final settingsProvider = context.read<MerchantSettingsProvider>();
+    if (settingsProvider.buyerConfig != null) {
+      return settingsProvider.buyerConfig!.storeProfile;
+    }
+
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null || token.isEmpty) return null;
+
+    await settingsProvider.fetchBuyerConfig(
+      apiClient: session.apiClient,
+      token: token,
+    );
+    return settingsProvider.buyerConfig?.storeProfile;
   }
 
   Future<void> _handleOrderOpenIntent() async {
@@ -797,6 +882,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MerchantOrdersProvider>();
+    final printersProvider = context.watch<MerchantPrintersProvider>();
     final orders = _filteredOrders(provider.orders);
     final statusFilters = _businessFilterMode
         ? const <_OrderFilter>[]
@@ -874,9 +960,11 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
               needsAcceptanceReminder: _needsAcceptanceReminder,
               onRefresh: _fetchOrders,
               onOpenDetail: _showDetail,
+              onPrintOrder: _printOrder,
               onUpdateStatus: _updateStatus,
               onRefund: _refundOrder,
               onCollectInStorePayment: _collectInStorePayment,
+              isPrinting: printersProvider.isPrinting,
             ),
           ),
         ],
@@ -1202,9 +1290,11 @@ class _OrdersBody extends StatelessWidget {
     required this.needsAcceptanceReminder,
     required this.onRefresh,
     required this.onOpenDetail,
+    required this.onPrintOrder,
     required this.onUpdateStatus,
     required this.onRefund,
     required this.onCollectInStorePayment,
+    required this.isPrinting,
   });
 
   final MerchantOrdersProvider provider;
@@ -1216,9 +1306,11 @@ class _OrdersBody extends StatelessWidget {
   final bool Function(MerchantOrder order) needsAcceptanceReminder;
   final Future<void> Function() onRefresh;
   final ValueChanged<MerchantOrder> onOpenDetail;
+  final ValueChanged<MerchantOrder> onPrintOrder;
   final void Function(MerchantOrder order, String status) onUpdateStatus;
   final ValueChanged<MerchantOrder> onRefund;
   final ValueChanged<MerchantOrder> onCollectInStorePayment;
+  final bool isPrinting;
 
   @override
   Widget build(BuildContext context) {
@@ -1268,9 +1360,11 @@ class _OrdersBody extends StatelessWidget {
               highlightNonce: highlightNonce,
               needsAcceptanceReminder: needsAcceptanceReminder(order),
               onOpenDetail: () => onOpenDetail(order),
+              onPrint: () => onPrintOrder(order),
               onUpdateStatus: (status) => onUpdateStatus(order, status),
               onRefund: () => onRefund(order),
               onCollectInStorePayment: () => onCollectInStorePayment(order),
+              isPrinting: isPrinting,
             ),
         ],
       ),
@@ -1287,9 +1381,11 @@ class _OrderCard extends StatelessWidget {
     required this.highlightNonce,
     required this.needsAcceptanceReminder,
     required this.onOpenDetail,
+    required this.onPrint,
     required this.onUpdateStatus,
     required this.onRefund,
     required this.onCollectInStorePayment,
+    required this.isPrinting,
   });
 
   final MerchantOrder order;
@@ -1298,9 +1394,11 @@ class _OrderCard extends StatelessWidget {
   final int highlightNonce;
   final bool needsAcceptanceReminder;
   final VoidCallback onOpenDetail;
+  final VoidCallback onPrint;
   final ValueChanged<String> onUpdateStatus;
   final VoidCallback onRefund;
   final VoidCallback onCollectInStorePayment;
+  final bool isPrinting;
 
   @override
   Widget build(BuildContext context) {
@@ -1408,6 +1506,17 @@ class _OrderCard extends StatelessWidget {
                       onPressed: onOpenDetail,
                       icon: const Icon(Icons.receipt_long_outlined, size: 18),
                       label: const Text('Details'),
+                    ),
+                    IconButton(
+                      tooltip: 'Print order',
+                      onPressed: isUpdating || isPrinting ? null : onPrint,
+                      icon: isPrinting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.print_outlined),
                     ),
                     const Spacer(),
                     if (order.canCollectInStorePayment)

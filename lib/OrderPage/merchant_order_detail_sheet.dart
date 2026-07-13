@@ -1,20 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/material.dart';
 
 import '../Models/merchant_order.dart';
 
 typedef SyncPaymentRecordsCallback =
     Future<MerchantOrder?> Function(MerchantOrder order);
+typedef PrintOrderCallback = Future<void> Function(MerchantOrder order);
 
 class MerchantOrderDetailSheet extends StatefulWidget {
   const MerchantOrderDetailSheet({
     super.key,
     required this.order,
     this.onSyncPaymentRecords,
+    this.onPrintOrder,
   });
 
   final MerchantOrder order;
   final SyncPaymentRecordsCallback? onSyncPaymentRecords;
+  final PrintOrderCallback? onPrintOrder;
 
   @override
   State<MerchantOrderDetailSheet> createState() =>
@@ -24,6 +26,7 @@ class MerchantOrderDetailSheet extends StatefulWidget {
 class _MerchantOrderDetailSheetState extends State<MerchantOrderDetailSheet> {
   late MerchantOrder _order;
   bool _isSyncingPaymentRecords = false;
+  bool _isPrinting = false;
 
   @override
   void initState() {
@@ -42,6 +45,16 @@ class _MerchantOrderDetailSheetState extends State<MerchantOrderDetailSheet> {
       if (syncedOrder != null) _order = syncedOrder;
       _isSyncingPaymentRecords = false;
     });
+  }
+
+  Future<void> _printOrder() async {
+    final callback = widget.onPrintOrder;
+    if (callback == null || _isPrinting) return;
+
+    setState(() => _isPrinting = true);
+    await callback(_order);
+    if (!mounted) return;
+    setState(() => _isPrinting = false);
   }
 
   @override
@@ -79,6 +92,20 @@ class _MerchantOrderDetailSheetState extends State<MerchantOrderDetailSheet> {
                   ),
                 ),
                 const SizedBox(width: 12),
+                IconButton(
+                  tooltip: 'Print order',
+                  onPressed: widget.onPrintOrder == null || _isPrinting
+                      ? null
+                      : _printOrder,
+                  icon: _isPrinting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.print_outlined),
+                ),
+                const SizedBox(width: 4),
                 _StatusChip(status: order.status),
               ],
             ),

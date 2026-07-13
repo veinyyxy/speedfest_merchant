@@ -9,6 +9,8 @@ class MerchantOrder {
     required this.createdAt,
     required this.updatedAt,
     required this.createdAtLabel,
+    required this.dueAt,
+    required this.dueAtLabel,
     required this.customerName,
     required this.customerPhone,
     required this.customerEmail,
@@ -39,6 +41,8 @@ class MerchantOrder {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final String createdAtLabel;
+  final DateTime? dueAt;
+  final String dueAtLabel;
   final String customerName;
   final String customerPhone;
   final String customerEmail;
@@ -173,6 +177,34 @@ class MerchantOrder {
       'date',
     ]);
     final updatedAtValue = _firstValue(json, const ['updated_at', 'updatedAt']);
+    final fulfillmentDetail = _asMap(
+      _firstValue(json, const ['fulfillment_detail', 'fulfillmentDetail']),
+    );
+    final dueAtValue =
+        _firstValue(json, const [
+          'due_at',
+          'dueAt',
+          'scheduled_at',
+          'scheduledAt',
+          'scheduled_time',
+          'scheduledTime',
+          'estimated_delivery',
+          'estimatedDelivery',
+          'pickup_time',
+          'pickupTime',
+        ]) ??
+        _firstValue(fulfillmentDetail, const [
+          'due_at',
+          'dueAt',
+          'scheduled_at',
+          'scheduledAt',
+          'scheduled_time',
+          'scheduledTime',
+          'estimated_delivery',
+          'estimatedDelivery',
+          'pickup_time',
+          'pickupTime',
+        ]);
 
     return MerchantOrder(
       id: _firstString(json, const ['order_id', 'orderId', 'id']),
@@ -198,6 +230,8 @@ class MerchantOrder {
       createdAt: _parseDate(createdAtValue),
       updatedAt: _parseDate(updatedAtValue),
       createdAtLabel: _formatDate(createdAtValue),
+      dueAt: _parseDate(dueAtValue),
+      dueAtLabel: _formatDate(dueAtValue),
       customerName: _firstString(customer, const [
         'username',
         'display_name',

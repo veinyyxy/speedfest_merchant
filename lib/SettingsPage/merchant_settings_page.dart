@@ -6,6 +6,7 @@ import '../Common/merchant_service_config.dart';
 import '../Controller/merchant_session_provider.dart';
 import '../Controller/merchant_settings_provider.dart';
 import '../Models/merchant_buyer_config.dart';
+import '../PrinterPage/merchant_printers_page.dart';
 
 class MerchantSettingsPage extends StatefulWidget {
   const MerchantSettingsPage({super.key});
@@ -277,6 +278,12 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
     final source = await _showImageSourcePicker();
     if (!mounted || source == null) return;
     await _pickAndUploadLogoFromSource(source);
+  }
+
+  Future<void> _openPrinters() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const MerchantPrintersPage()),
+    );
   }
 
   Future<ImageSource?> _showImageSourcePicker() {
@@ -641,6 +648,22 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
                 ),
                 const SizedBox(height: 12),
               ],
+              _SettingsCard(
+                title: 'Printers',
+                children: [
+                  Text(
+                    'Manage receipt printers for this device. Saved printers stay local to the merchant app.',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _openPrinters,
+                    icon: const Icon(Icons.print_outlined),
+                    label: const Text('Manage printers'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               _SettingsCard(
                 title: 'Store Profile',
                 children: [

@@ -6,6 +6,7 @@ import 'Controller/merchant_orders_provider.dart';
 import 'Controller/merchant_notification_service.dart';
 import 'Controller/merchant_notifications_provider.dart';
 import 'Controller/merchant_products_provider.dart';
+import 'Controller/merchant_printers_provider.dart';
 import 'Controller/merchant_rewards_provider.dart';
 import 'Controller/merchant_settings_provider.dart';
 import 'Controller/merchant_session_provider.dart';
@@ -27,6 +28,9 @@ void main() {
         ChangeNotifierProvider(create: (_) => MerchantOrdersProvider()),
         ChangeNotifierProvider(create: (_) => MerchantNotificationsProvider()),
         ChangeNotifierProvider(create: (_) => MerchantProductsProvider()),
+        ChangeNotifierProvider(
+          create: (_) => MerchantPrintersProvider()..initialize(),
+        ),
         ChangeNotifierProvider(create: (_) => MerchantRewardsProvider()),
         ChangeNotifierProvider(create: (_) => MerchantSettingsProvider()),
       ],
