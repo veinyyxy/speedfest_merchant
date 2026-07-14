@@ -4,12 +4,16 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
-import '../Common/merchant_firebase_config.dart';
 import '../Common/merchant_navigation_intent.dart';
 import '../Common/merchant_service_config.dart';
 import '../Common/merchant_web_notification_click_stub.dart'
     if (dart.library.html) '../Common/merchant_web_notification_click_web.dart';
+import '../firebase_options.dart';
 import 'signed_api_client.dart';
+
+const _merchantFirebaseWebVapidKey = String.fromEnvironment(
+  'MERCHANT_FIREBASE_WEB_VAPID_KEY',
+);
 
 @pragma('vm:entry-point')
 Future<void> merchantFirebaseMessagingBackgroundHandler(
@@ -22,12 +26,9 @@ Future<void> merchantFirebaseMessagingBackgroundHandler(
       'body=${message.notification?.body}',
     );
     if (Firebase.apps.isEmpty) {
-      final options = await MerchantFirebaseConfig.loadOptions();
-      if (options == null) {
-        await Firebase.initializeApp();
-      } else {
-        await Firebase.initializeApp(options: options);
-      }
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
     }
   } catch (_) {
     // Background handlers must never crash the app isolate.
@@ -67,7 +68,7 @@ class MerchantNotificationService {
       return const MerchantNotificationRegistrationResult(
         success: false,
         message:
-            'Firebase Web config is missing. Check web/firebase-config.json or MERCHANT_FIREBASE_* dart-defines.',
+            'Firebase initialization failed. Check lib/firebase_options.dart.',
       );
     }
     final supported = await _isMessagingSupported();
@@ -147,18 +148,9 @@ class MerchantNotificationService {
 
     try {
       if (Firebase.apps.isEmpty) {
-        final options = await MerchantFirebaseConfig.loadOptions();
-        if (kIsWeb && options == null) {
-          debugPrint(
-            'Merchant notifications are disabled: Firebase web config was not found.',
-          );
-          return false;
-        }
-        if (options == null) {
-          await Firebase.initializeApp();
-        } else {
-          await Firebase.initializeApp(options: options);
-        }
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
       }
       _firebaseReady = true;
       return true;
@@ -194,14 +186,13 @@ class MerchantNotificationService {
   Future<_FcmTokenResult> _readFcmToken() async {
     try {
       if (kIsWeb) {
-        final webVapidKey = await MerchantFirebaseConfig.loadWebVapidKey();
-        if (webVapidKey.isEmpty) {
+        if (_merchantFirebaseWebVapidKey.isEmpty) {
           return const _FcmTokenResult(
             errorMessage: 'MERCHANT_FIREBASE_WEB_VAPID_KEY is not configured.',
           );
         }
         final token = await FirebaseMessaging.instance.getToken(
-          vapidKey: webVapidKey,
+          vapidKey: _merchantFirebaseWebVapidKey,
           serviceWorkerScriptPath: '/firebase-messaging-sw.js',
         );
         return _FcmTokenResult(token: token);

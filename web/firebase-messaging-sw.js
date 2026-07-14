@@ -2,7 +2,7 @@ importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js');
 
 self.firebaseConfig = {
-  apiKey: '',
+  apiKey: 'AIzaSyBSgfa6M7eLlL9YpcWhM_ZHUMrqulHHPmg',
   authDomain: 'speedfeast-marchent.firebaseapp.com',
   projectId: 'speedfeast-marchent',
   storageBucket: 'speedfeast-marchent.firebasestorage.app',

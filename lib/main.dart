@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -12,9 +13,11 @@ import 'Controller/merchant_settings_provider.dart';
 import 'Controller/merchant_session_provider.dart';
 import 'HomePage/merchant_shell_page.dart';
 import 'LoginPage/merchant_login_page.dart';
+import 'firebase_options.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirebaseMessaging.onBackgroundMessage(
     merchantFirebaseMessagingBackgroundHandler,
   );
