@@ -1,4 +1,4 @@
-package com.techlong.speedfestmerchant.speedfest_merchant
+package com.techlong.speedfeast.merchant
 
 import android.Manifest
 import android.app.Notification
