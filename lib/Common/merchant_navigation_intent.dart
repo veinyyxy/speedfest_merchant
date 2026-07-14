@@ -15,8 +15,12 @@ class MerchantNavigationIntent {
   static void openOrders({bool refresh = true}) {
     selectedTabIndex.value = 0;
     if (refresh) {
-      ordersRefreshTick.value += 1;
+      refreshOrders();
     }
+  }
+
+  static void refreshOrders() {
+    ordersRefreshTick.value += 1;
   }
 
   static void openOrder({

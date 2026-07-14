@@ -103,6 +103,8 @@ class _MerchantShellPageState extends State<MerchantShellPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      MerchantNavigationIntent.refreshOrders();
+      unawaited(_refreshNotificationCount());
       _startNotificationPolling();
       return;
     }
