@@ -1,0 +1,446 @@
+{
+  "schemaVersion": 1,
+  "templateId": "order_receipt_default_v1",
+  "name": "Delivery order receipt",
+  "currencySymbol": "$",
+  "paperProfiles": {
+    "mm58": {
+      "columns": 26,
+      "widthDots": 384,
+      "widthMm": 58,
+      "horizontalMarginDots": 1,
+      "verticalMarginDots": 12
+    },
+    "mm80": {
+      "columns": 40,
+      "widthDots": 576,
+      "widthMm": 80,
+      "horizontalMarginDots": 1,
+      "verticalMarginDots": 16
+    }
+  },
+  "styles": {
+    "normal": {
+      "align": "left",
+      "bold": false,
+      "escPos": {
+        "smallFont": false,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 28,
+        "lineHeight": 1.12
+      }
+    },
+    "brand": {
+      "align": "left",
+      "bold": true,
+      "escPos": {
+        "smallFont": true,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 22,
+        "lineHeight": 1.0
+      }
+    },
+    "storeName": {
+      "align": "left",
+      "bold": false,
+      "escPos": {
+        "smallFont": false,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 28,
+        "lineHeight": 1.42
+      }
+    },
+    "fulfillment": {
+      "align": "center",
+      "bold": true,
+      "escPos": {
+        "smallFont": false,
+        "widthScale": 2,
+        "heightScale": 2
+      },
+      "bitmap": {
+        "fontSize": 46,
+        "lineHeight": 1.5
+      }
+    },
+    "customer": {
+      "align": "center",
+      "bold": true,
+      "escPos": {
+        "smallFont": false,
+        "widthScale": 2,
+        "heightScale": 2
+      },
+      "bitmap": {
+        "fontSize": 46,
+        "lineHeight": 1.45
+      }
+    },
+    "strong": {
+      "align": "left",
+      "bold": true,
+      "escPos": {
+        "smallFont": false,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 35,
+        "lineHeight": 1.35
+      }
+    },
+    "item": {
+      "align": "left",
+      "bold": true,
+      "escPos": {
+        "smallFont": true,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 40,
+        "lineHeight": 1.12
+      }
+    },
+    "itemNote": {
+      "align": "left",
+      "bold": false,
+      "escPos": {
+        "smallFont": true,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 40,
+        "lineHeight": 1.1
+      }
+    },
+    "separator": {
+      "align": "left",
+      "bold": false,
+      "escPos": {
+        "smallFont": true,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 23,
+        "lineHeight": 1.0
+      }
+    },
+    "pricing": {
+      "align": "left",
+      "bold": false,
+      "escPos": {
+        "smallFont": true,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 35,
+        "lineHeight": 1.12
+      }
+    },
+    "total": {
+      "align": "left",
+      "bold": true,
+      "escPos": {
+        "smallFont": true,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 40,
+        "lineHeight": 1.2
+      }
+    }
+  },
+  "sections": [
+    {
+      "type": "text",
+      "field": "app.name",
+      "style": "brand"
+    },
+    {
+      "type": "text",
+      "field": "store.name",
+      "fallback": "Restaurant",
+      "style": "storeName"
+    },
+    {
+      "type": "text",
+      "field": "order.fulfillmentLabel",
+      "style": "fulfillment"
+    },
+    {
+      "type": "text",
+      "field": "customer.displayName",
+      "style": "customer",
+      "when": {
+        "field": "customer.displayName",
+        "operator": "notEmpty"
+      }
+    },
+    {
+      "type": "text",
+      "template": "ID: #{{order.shortId}}",
+      "style": "normal"
+    },
+    {
+      "type": "text",
+      "template": "Payment: {{order.paymentLabel}}",
+      "style": "normal"
+    },
+    {
+      "type": "text",
+      "template": "Due at {{order.dueAtLabel}}",
+      "style": "strong",
+      "when": {
+        "field": "order.dueAtLabel",
+        "operator": "notEmpty"
+      }
+    },
+    {
+      "type": "text",
+      "field": "order.itemCountLabel",
+      "style": "normal"
+    },
+    {
+      "type": "separator",
+      "widthPercent": 100,
+      "position": "center",
+      "thicknessDots": 2,
+      "spaceBeforeDots": 6,
+      "spaceAfterDots": 6,
+      "style": "separator"
+    },
+    {
+      "type": "repeat",
+      "source": "order.items",
+      "itemName": "item",
+      "children": [
+        {
+          "type": "moneyRow",
+          "label": "{{item.quantity}}x {{item.name}}",
+          "amountField": "item.price",
+          "style": "item"
+        },
+        {
+          "type": "text",
+          "template": "Reward item",
+          "prefix": "  - ",
+          "style": "itemNote",
+          "when": {
+            "field": "item.isReward",
+            "operator": "isTrue"
+          }
+        },
+        {
+          "type": "repeat",
+          "source": "item.optionLines",
+          "itemName": "option",
+          "children": [
+            {
+              "type": "text",
+              "field": "option.text",
+              "prefix": "  - ",
+              "style": "itemNote"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "template": "Note: {{item.instructions}}",
+          "prefix": "  - ",
+          "style": "itemNote",
+          "when": {
+            "field": "item.instructions",
+            "operator": "notEmpty"
+          }
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "template": "No item details available.",
+      "style": "item",
+      "when": {
+        "field": "order.hasItems",
+        "operator": "isFalse"
+      }
+    },
+    {
+      "type": "separator",
+      "widthPercent": 100,
+      "position": "center",
+      "thicknessDots": 2,
+      "spaceBeforeDots": 6,
+      "spaceAfterDots": 6,
+      "style": "separator"
+    },
+    {
+      "type": "moneyRow",
+      "label": "subtotal",
+      "amountField": "pricing.subtotal",
+      "style": "pricing"
+    },
+    {
+      "type": "moneyRow",
+      "label": "Delivery fee",
+      "amountField": "pricing.deliveryFee",
+      "style": "pricing",
+      "when": {
+        "field": "pricing.deliveryFee",
+        "operator": "greaterThan",
+        "value": 0
+      }
+    },
+    {
+      "type": "moneyRow",
+      "label": "Service fee",
+      "amountField": "pricing.serviceFee",
+      "style": "pricing",
+      "when": {
+        "field": "pricing.serviceFee",
+        "operator": "greaterThan",
+        "value": 0
+      }
+    },
+    {
+      "type": "moneyRow",
+      "label": "Tax",
+      "amountField": "pricing.tax",
+      "style": "pricing",
+      "when": {
+        "field": "pricing.tax",
+        "operator": "greaterThan",
+        "value": 0
+      }
+    },
+    {
+      "type": "moneyRow",
+      "label": "Tip",
+      "amountField": "pricing.tip",
+      "style": "pricing",
+      "when": {
+        "field": "pricing.tip",
+        "operator": "greaterThan",
+        "value": 0
+      }
+    },
+    {
+      "type": "moneyRow",
+      "label": "Refunded",
+      "amountField": "pricing.refunded",
+      "style": "pricing",
+      "when": {
+        "field": "pricing.hasRefund",
+        "operator": "isTrue"
+      }
+    },
+    {
+      "type": "separator",
+      "widthPercent": 100,
+      "position": "center",
+      "thicknessDots": 2,
+      "spaceBeforeDots": 6,
+      "spaceAfterDots": 6,
+      "style": "separator"
+    },
+    {
+      "type": "moneyRow",
+      "label": "Total",
+      "amountField": "pricing.total",
+      "style": "total"
+    },
+    {
+      "type": "feed",
+      "lines": 2,
+      "style": "normal"
+    },
+    {
+      "type": "cut",
+      "mode": "partial",
+      "style": "normal"
+    }
+  ],
+  "testSections": [
+    {
+      "type": "text",
+      "field": "app.name",
+      "style": "brand"
+    },
+    {
+      "type": "text",
+      "template": "Printer test",
+      "style": "fulfillment"
+    },
+    {
+      "type": "separator",
+      "widthPercent": 100,
+      "position": "center",
+      "thicknessDots": 2,
+      "spaceBeforeDots": 6,
+      "spaceAfterDots": 6,
+      "style": "separator"
+    },
+    {
+      "type": "text",
+      "template": "Printer: {{printer.name}}",
+      "style": "normal"
+    },
+    {
+      "type": "text",
+      "template": "Type: {{printer.connectionType}}",
+      "style": "normal"
+    },
+    {
+      "type": "text",
+      "template": "Target: {{printer.target}}",
+      "style": "separator"
+    },
+    {
+      "type": "text",
+      "template": "Paper: {{printer.paperSize}}",
+      "style": "normal"
+    },
+    {
+      "type": "text",
+      "template": "Protocol: {{printer.protocol}}",
+      "style": "normal"
+    },
+    {
+      "type": "separator",
+      "widthPercent": 100,
+      "position": "center",
+      "thicknessDots": 2,
+      "spaceBeforeDots": 6,
+      "spaceAfterDots": 6,
+      "style": "separator"
+    },
+    {
+      "type": "text",
+      "field": "test.message",
+      "style": "normal"
+    },
+    {
+      "type": "feed",
+      "lines": 2,
+      "style": "normal"
+    },
+    {
+      "type": "cut",
+      "mode": "partial",
+      "style": "normal"
+    }
+  ]
+}

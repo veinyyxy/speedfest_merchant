@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../Models/merchant_printer.dart';
 
 abstract class MerchantPrinterPlatform {
@@ -22,7 +24,13 @@ abstract class MerchantPrinterPlatform {
 
   Future<void> printNetworkBytes(MerchantPrinter printer, List<int> bytes);
 
-  Future<void> printStarText(MerchantPrinter printer, String text);
+  Future<void> printStarImage(
+    MerchantPrinter printer,
+    Uint8List imageBytes, {
+    required int paperWidthDots,
+    required int feedLines,
+    required String cutMode,
+  });
 
   Future<void> printBrowserText({
     required String title,

@@ -121,6 +121,51 @@ class _MerchantPrintersPageState extends State<MerchantPrintersPage> {
     );
   }
 
+  Future<void> _showReceiptTemplatePreview() async {
+    final provider = context.read<MerchantPrintersProvider>();
+    try {
+      final image = await provider.renderReceiptTemplatePreview(_paperSize);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => Dialog(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520, maxHeight: 760),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  title: Text(provider.receiptTemplateName),
+                  subtitle: Text('${_paperSizeLabel(_paperSize)} preview'),
+                  trailing: IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+                const Divider(height: 1),
+                Flexible(
+                  child: Container(
+                    color: Colors.grey.shade300,
+                    padding: const EdgeInsets.all(20),
+                    child: InteractiveViewer(
+                      minScale: 0.5,
+                      maxScale: 4,
+                      child: Image.memory(image, fit: BoxFit.contain),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (err) {
+      if (!mounted) return;
+      _showMessage('Unable to preview receipt template: $err', success: false);
+    }
+  }
+
   void _showMessage(String message, {bool success = true}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -156,6 +201,13 @@ class _MerchantPrintersPageState extends State<MerchantPrintersPage> {
               value: _protocol,
               supportsStarPrinting: provider.supportsStarPrinting,
               onChanged: (value) => setState(() => _protocol = value),
+            ),
+            const SizedBox(height: 12),
+            _ReceiptTemplateCard(
+              name: provider.receiptTemplateName,
+              assetPath: provider.receiptTemplateAssetPath,
+              usedFallback: provider.usedFallbackReceiptTemplate,
+              onPreview: _showReceiptTemplatePreview,
             ),
             const SizedBox(height: 12),
             _SavedPrintersCard(
@@ -194,6 +246,70 @@ class _MerchantPrintersPageState extends State<MerchantPrintersPage> {
               _BrowserPrinterCard(
                 isBusy: provider.isBusy,
                 onAdd: _addBrowserPrinter,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReceiptTemplateCard extends StatelessWidget {
+  const _ReceiptTemplateCard({
+    required this.name,
+    required this.assetPath,
+    required this.usedFallback,
+    required this.onPreview,
+  });
+
+  final String name;
+  final String assetPath;
+  final bool usedFallback;
+  final VoidCallback onPreview;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.description_outlined),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    name,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: onPreview,
+                  icon: const Icon(Icons.preview_outlined),
+                  label: const Text('Preview'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              assetPath.isEmpty
+                  ? 'Loading local receipt template...'
+                  : assetPath,
+              style: TextStyle(
+                color: usedFallback
+                    ? Colors.orange.shade800
+                    : Colors.grey.shade700,
+                fontSize: 12,
+              ),
+            ),
+            if (usedFallback) ...[
+              const SizedBox(height: 6),
+              Text(
+                'The primary JSON was invalid, so the local fallback template is active.',
+                style: TextStyle(color: Colors.orange.shade800),
               ),
             ],
           ],
@@ -883,5 +999,12 @@ String _printerProtocolLabel(MerchantPrinterProtocol protocol) {
   return switch (protocol) {
     MerchantPrinterProtocol.escPos => 'ESC/POS',
     MerchantPrinterProtocol.starPrnt => 'StarPRNT / Star Line',
+  };
+}
+
+String _paperSizeLabel(MerchantPrinterPaperSize paperSize) {
+  return switch (paperSize) {
+    MerchantPrinterPaperSize.mm58 => '58 mm',
+    MerchantPrinterPaperSize.mm80 => '80 mm',
   };
 }

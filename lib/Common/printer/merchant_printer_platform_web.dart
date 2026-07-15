@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:html' as dom;
+import 'dart:typed_data';
 
 import '../../Models/merchant_printer.dart';
 import 'merchant_printer_platform_interface.dart';
@@ -131,7 +132,13 @@ class _WebPrinterPlatform implements MerchantPrinterPlatform {
   }
 
   @override
-  Future<void> printStarText(MerchantPrinter printer, String text) {
+  Future<void> printStarImage(
+    MerchantPrinter printer,
+    Uint8List imageBytes, {
+    required int paperWidthDots,
+    required int feedLines,
+    required String cutMode,
+  }) {
     throw const MerchantPrinterException(
       'Star printer support is not available on web.',
     );

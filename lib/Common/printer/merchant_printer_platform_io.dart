@@ -255,7 +255,13 @@ class _IoPrinterPlatform implements MerchantPrinterPlatform {
   }
 
   @override
-  Future<void> printStarText(MerchantPrinter printer, String text) async {
+  Future<void> printStarImage(
+    MerchantPrinter printer,
+    Uint8List imageBytes, {
+    required int paperWidthDots,
+    required int feedLines,
+    required String cutMode,
+  }) async {
     _ensureStarPrinterPlatform();
     if (printer.isBluetooth) {
       await _ensureBluetoothPermission();
@@ -270,14 +276,16 @@ class _IoPrinterPlatform implements MerchantPrinterPlatform {
       );
     }
 
-    await _invokeStarPrinterMethod('printText', {
+    if (imageBytes.isEmpty) {
+      throw const MerchantPrinterException('Star receipt image is empty.');
+    }
+
+    await _invokeStarPrinterMethod('printImage', {
       ..._starPrinterArguments(printer),
-      'text': text,
-      'paperWidthDots': switch (printer.paperSize) {
-        MerchantPrinterPaperSize.mm58 => 384,
-        MerchantPrinterPaperSize.mm80 => 576,
-      },
-      'lineWidth': printer.lineWidth,
+      'imageBytes': imageBytes,
+      'paperWidthDots': paperWidthDots,
+      'feedLines': feedLines,
+      'cutMode': cutMode,
     });
   }
 

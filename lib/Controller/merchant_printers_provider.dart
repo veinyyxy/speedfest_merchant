@@ -15,7 +15,7 @@ class MerchantPrintersProvider with ChangeNotifier {
     MerchantPrinterPlatform? platform,
     MerchantReceiptRenderer? renderer,
   }) : _platform = platform ?? createMerchantPrinterPlatform(),
-       _renderer = renderer ?? const MerchantReceiptRenderer();
+       _renderer = renderer ?? MerchantReceiptRenderer();
 
   static const _storageKey = 'merchant_saved_printers_v1';
 
@@ -50,6 +50,9 @@ class MerchantPrintersProvider with ChangeNotifier {
   bool get supportsNetwork => _platform.supportsNetwork;
   bool get supportsBrowserPrint => _platform.supportsBrowserPrint;
   bool get supportsStarPrinting => _platform.supportsStarPrinting;
+  String get receiptTemplateName => _renderer.templateName;
+  String get receiptTemplateAssetPath => _renderer.templateAssetPath;
+  bool get usedFallbackReceiptTemplate => _renderer.usedFallbackTemplate;
   MerchantPrinter? get defaultPrinter {
     for (final printer in _printers) {
       if (printer.isDefault) return printer;
@@ -63,6 +66,7 @@ class MerchantPrintersProvider with ChangeNotifier {
     notifyListeners();
 
     try {
+      await _renderer.initialize();
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_storageKey);
       _printers = _decodePrinters(raw);
@@ -176,11 +180,13 @@ class MerchantPrintersProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final bytes = _renderer.renderTestTicket(printer);
-      await _printBytesOrText(
+      final receipt = await _renderer.renderTest(
         printer: printer,
-        bytes: bytes,
-        text: 'SpeedFeast printer test\n\nPrinter: ${printer.displayName}',
+        includeBitmap: printer.protocol == MerchantPrinterProtocol.starPrnt,
+      );
+      await _printReceipt(
+        printer: printer,
+        receipt: receipt,
         title: 'SpeedFeast printer test',
       );
       _markConnected(printer.id);
@@ -211,26 +217,15 @@ class MerchantPrintersProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final bytes = _renderer.renderOrderTicket(
+      final receipt = await _renderer.renderOrder(
         order: order,
         paperSize: target.paperSize,
         storeProfile: storeProfile,
+        includeBitmap: target.protocol == MerchantPrinterProtocol.starPrnt,
       );
-      final text = _renderer.renderOrderText(
-        order: order,
-        paperSize: target.paperSize,
-        storeProfile: storeProfile,
-      );
-      final html = _renderer.renderOrderHtml(
-        order: order,
-        paperSize: target.paperSize,
-        storeProfile: storeProfile,
-      );
-      await _printBytesOrText(
+      await _printReceipt(
         printer: target,
-        bytes: bytes,
-        text: text,
-        html: html,
+        receipt: receipt,
         title: order.displayId,
       );
       _markConnected(target.id);
@@ -243,6 +238,24 @@ class MerchantPrintersProvider with ChangeNotifier {
       _isPrinting = false;
       notifyListeners();
     }
+  }
+
+  Future<Uint8List> renderReceiptTemplatePreview(
+    MerchantPrinterPaperSize paperSize,
+  ) async {
+    final receipt = await _renderer.renderOrder(
+      order: _previewReceiptOrder(),
+      paperSize: paperSize,
+      storeProfile: MerchantStoreProfileConfig.defaults(),
+      includeBitmap: true,
+    );
+    final bitmap = receipt.bitmapPng;
+    if (bitmap == null || bitmap.isEmpty) {
+      throw const MerchantPrinterException(
+        'Receipt template preview could not be generated.',
+      );
+    }
+    return bitmap;
   }
 
   Future<void> setDefaultPrinter(String printerId) async {
@@ -317,26 +330,40 @@ class MerchantPrintersProvider with ChangeNotifier {
     }
   }
 
-  Future<void> _printBytesOrText({
+  Future<void> _printReceipt({
     required MerchantPrinter printer,
-    required List<int> bytes,
-    required String text,
+    required MerchantReceiptRenderResult receipt,
     required String title,
-    String? html,
   }) async {
     if (printer.protocol == MerchantPrinterProtocol.starPrnt &&
         printer.connectionType != MerchantPrinterConnectionType.browser) {
-      await _platform.printStarText(printer, text);
+      final bitmap = receipt.bitmapPng;
+      if (bitmap == null || bitmap.isEmpty) {
+        throw const MerchantPrinterException(
+          'Star receipt image could not be generated.',
+        );
+      }
+      await _platform.printStarImage(
+        printer,
+        bitmap,
+        paperWidthDots: receipt.paperWidthDots,
+        feedLines: receipt.feedLines,
+        cutMode: receipt.cutMode,
+      );
       return;
     }
 
     switch (printer.connectionType) {
       case MerchantPrinterConnectionType.bluetooth:
-        await _platform.printBluetoothBytes(printer, bytes);
+        await _platform.printBluetoothBytes(printer, receipt.escPosBytes);
       case MerchantPrinterConnectionType.network:
-        await _platform.printNetworkBytes(printer, bytes);
+        await _platform.printNetworkBytes(printer, receipt.escPosBytes);
       case MerchantPrinterConnectionType.browser:
-        await _platform.printBrowserText(title: title, text: text, html: html);
+        await _platform.printBrowserText(
+          title: title,
+          text: receipt.text,
+          html: receipt.html,
+        );
     }
   }
 
@@ -438,4 +465,37 @@ int _comparePrinters(MerchantPrinter left, MerchantPrinter right) {
   return left.displayName.toLowerCase().compareTo(
     right.displayName.toLowerCase(),
   );
+}
+
+MerchantOrder _previewReceiptOrder() {
+  return MerchantOrder.fromJson({
+    'order_id': 'PREVIEW-1001',
+    'status': 'accepted',
+    'fulfillment_type': 'delivery',
+    'payment_status': 'paid',
+    'payment_channel': 'online',
+    'due_at': '2026-07-15T18:30:00-05:00',
+    'customer': {'name': 'Sample Customer'},
+    'items': [
+      {
+        'name': 'Classic Burger',
+        'quantity': 1,
+        'subtotal': 12.5,
+        'selected_options': [
+          {'group_name': 'Side', 'name': 'Fries'},
+          {'group_name': 'Drink', 'name': 'Cola'},
+        ],
+        'special_instructions': 'No onions',
+      },
+      {'name': 'Chicken Wings', 'quantity': 2, 'subtotal': 18.0},
+    ],
+    'pricing': {
+      'subtotal': 30.5,
+      'delivery_fee': 3.0,
+      'delivery_service_fee': 1.5,
+      'taxes': 4.55,
+      'tip_amount': 5.0,
+      'total': 44.55,
+    },
+  });
 }

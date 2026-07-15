@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "templateId": "order_receipt_fallback_v1",
+  "name": "Safe fallback receipt",
+  "currencySymbol": "$",
+  "paperProfiles": {
+    "mm58": {
+      "columns": 32,
+      "widthDots": 384,
+      "widthMm": 58,
+      "horizontalMarginDots": 10,
+      "verticalMarginDots": 12
+    },
+    "mm80": {
+      "columns": 48,
+      "widthDots": 576,
+      "widthMm": 80,
+      "horizontalMarginDots": 16,
+      "verticalMarginDots": 16
+    }
+  },
+  "styles": {
+    "normal": {
+      "align": "left",
+      "bold": false,
+      "escPos": {
+        "smallFont": false,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 20,
+        "lineHeight": 1.12
+      }
+    },
+    "title": {
+      "align": "center",
+      "bold": true,
+      "escPos": {
+        "smallFont": false,
+        "widthScale": 2,
+        "heightScale": 2
+      },
+      "bitmap": {
+        "fontSize": 30,
+        "lineHeight": 1.08
+      }
+    }
+  },
+  "sections": [
+    {
+      "type": "text",
+      "field": "store.name",
+      "fallback": "Restaurant",
+      "style": "title"
+    },
+    {
+      "type": "text",
+      "template": "Order #{{order.shortId}}",
+      "style": "title"
+    },
+    {
+      "type": "separator",
+      "widthPercent": 100,
+      "position": "center",
+      "thicknessDots": 2,
+      "spaceBeforeDots": 6,
+      "spaceAfterDots": 6,
+      "style": "normal"
+    },
+    {
+      "type": "repeat",
+      "source": "order.items",
+      "itemName": "item",
+      "children": [
+        {
+          "type": "moneyRow",
+          "label": "{{item.quantity}}x {{item.name}}",
+          "amountField": "item.price",
+          "style": "normal"
+        }
+      ]
+    },
+    {
+      "type": "separator",
+      "widthPercent": 100,
+      "position": "center",
+      "thicknessDots": 2,
+      "spaceBeforeDots": 6,
+      "spaceAfterDots": 6,
+      "style": "normal"
+    },
+    {
+      "type": "moneyRow",
+      "label": "Total",
+      "amountField": "pricing.total",
+      "style": "normal"
+    },
+    {
+      "type": "feed",
+      "lines": 2,
+      "style": "normal"
+    }
+  ],
+  "testSections": [
+    {
+      "type": "text",
+      "template": "Printer test",
+      "style": "title"
+    },
+    {
+      "type": "text",
+      "template": "Printer: {{printer.name}}",
+      "style": "normal"
+    },
+    {
+      "type": "text",
+      "field": "test.message",
+      "style": "normal"
+    },
+    {
+      "type": "feed",
+      "lines": 2,
+      "style": "normal"
+    }
+  ]
+}

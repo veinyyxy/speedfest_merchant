@@ -1,16 +1,10 @@
 package com.techlong.speedfeast.merchant
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Typeface
+import android.graphics.BitmapFactory
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import kotlin.math.ceil
-import kotlin.math.max
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -44,8 +38,8 @@ class StarPrinterChannel(
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "probe" -> runPrinterOperation(call, result, printText = false)
-            "printText" -> runPrinterOperation(call, result, printText = true)
+            "probe" -> runPrinterOperation(call, result, printImage = false)
+            "printImage" -> runPrinterOperation(call, result, printImage = true)
             else -> result.notImplemented()
         }
     }
@@ -53,7 +47,7 @@ class StarPrinterChannel(
     private fun runPrinterOperation(
         call: MethodCall,
         result: MethodChannel.Result,
-        printText: Boolean
+        printImage: Boolean
     ) {
         val arguments = call.arguments as? Map<*, *>
         if (arguments == null) {
@@ -67,24 +61,32 @@ class StarPrinterChannel(
                 val printer = StarPrinter(settings, applicationContext)
                 try {
                     printer.openAsync().await()
-                    if (printText) {
-                        val text = readString(arguments, "text")
+                    if (printImage) {
+                        val imageBytes = arguments["imageBytes"] as? ByteArray
+                            ?: throw IllegalArgumentException("Receipt image is required.")
+                        require(imageBytes.isNotEmpty()) { "Receipt image is empty." }
                         val paperWidthDots = readInt(arguments, "paperWidthDots", 576)
                             .coerceIn(256, 832)
-                        val lineWidth = readInt(arguments, "lineWidth", 48)
-                            .coerceIn(24, 64)
-                        val bitmap = renderReceiptBitmap(text, paperWidthDots, lineWidth)
+                        val feedLines = readInt(arguments, "feedLines", 2)
+                            .coerceIn(0, 20)
+                        val cutMode = readString(arguments, "cutMode").lowercase()
+                        val bitmap = BitmapFactory.decodeByteArray(
+                            imageBytes,
+                            0,
+                            imageBytes.size
+                        ) ?: throw IllegalArgumentException("Receipt image is invalid.")
                         try {
+                            val printerBuilder = PrinterBuilder()
+                                .actionPrintImage(ImageParameter(bitmap, paperWidthDots))
+                            if (feedLines > 0) {
+                                printerBuilder.actionFeedLine(feedLines)
+                            }
+                            if (cutMode == "partial") {
+                                printerBuilder.actionCut(CutType.Partial)
+                            }
                             val commands = StarXpandCommandBuilder()
                                 .addDocument(
-                                    DocumentBuilder().addPrinter(
-                                        PrinterBuilder()
-                                            .actionPrintImage(
-                                                ImageParameter(bitmap, paperWidthDots)
-                                            )
-                                            .actionFeedLine(2)
-                                            .actionCut(CutType.Partial)
-                                    )
+                                    DocumentBuilder().addPrinter(printerBuilder)
                                 )
                                 .getCommands()
                             printer.printAsync(commands).await()
@@ -117,60 +119,6 @@ class StarPrinterChannel(
             )
         }
         return StarConnectionSettings(interfaceType, identifier)
-    }
-
-    private fun renderReceiptBitmap(
-        text: String,
-        paperWidthDots: Int,
-        lineWidth: Int
-    ): Bitmap {
-        val horizontalMargin = if (paperWidthDots <= 384) 10f else 16f
-        val printableWidth = paperWidthDots - (horizontalMargin * 2)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
-            textSize = 24f
-        }
-        val referenceWidth = paint.measureText("M".repeat(lineWidth))
-        if (referenceWidth > printableWidth) {
-            paint.textSize *= printableWidth / referenceWidth
-        }
-        paint.textSize = max(14f, paint.textSize)
-
-        val lines = text.replace("\r\n", "\n")
-            .replace('\r', '\n')
-            .split('\n')
-            .flatMap { wrapLine(it, paint, printableWidth) }
-            .ifEmpty { listOf("") }
-        val lineHeight = ceil(paint.fontSpacing.toDouble()).toInt().coerceAtLeast(1)
-        val verticalMargin = lineHeight
-        val bitmapHeight = (verticalMargin * 2 + lineHeight * lines.size)
-            .coerceAtLeast(lineHeight * 3)
-        val bitmap = Bitmap.createBitmap(
-            paperWidthDots,
-            bitmapHeight,
-            Bitmap.Config.ARGB_8888
-        )
-        val canvas = Canvas(bitmap)
-        canvas.drawColor(Color.WHITE)
-        var baseline = verticalMargin - paint.fontMetrics.top
-        for (line in lines) {
-            canvas.drawText(line, horizontalMargin, baseline, paint)
-            baseline += lineHeight
-        }
-        return bitmap
-    }
-
-    private fun wrapLine(line: String, paint: Paint, width: Float): List<String> {
-        if (line.isEmpty()) return listOf("")
-        val wrapped = mutableListOf<String>()
-        var remaining = line
-        while (remaining.isNotEmpty()) {
-            val count = paint.breakText(remaining, true, width, null).coerceAtLeast(1)
-            wrapped += remaining.substring(0, count)
-            remaining = remaining.substring(count)
-        }
-        return wrapped
     }
 
     private fun readString(arguments: Map<*, *>, key: String): String {
