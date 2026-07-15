@@ -17,6 +17,7 @@ class _MerchantPrintersPageState extends State<MerchantPrintersPage> {
   final _printerAddressController = TextEditingController();
   final _printerPortController = TextEditingController(text: '9100');
   MerchantPrinterPaperSize _paperSize = MerchantPrinterPaperSize.mm80;
+  MerchantPrinterProtocol _protocol = MerchantPrinterProtocol.escPos;
 
   @override
   void dispose() {
@@ -36,6 +37,7 @@ class _MerchantPrintersPageState extends State<MerchantPrintersPage> {
       address: _printerAddressController.text,
       port: int.tryParse(_printerPortController.text.trim()) ?? 9100,
       paperSize: _paperSize,
+      protocol: _protocol,
     );
     if (!mounted) return;
 
@@ -57,6 +59,7 @@ class _MerchantPrintersPageState extends State<MerchantPrintersPage> {
     final ok = await provider.addDiscoveredPrinter(
       printer,
       paperSize: _paperSize,
+      protocol: _protocol,
     );
     if (!mounted) return;
 
@@ -105,6 +108,19 @@ class _MerchantPrintersPageState extends State<MerchantPrintersPage> {
     );
   }
 
+  Future<void> _setPrinterProtocol(
+    MerchantPrinter printer,
+    MerchantPrinterProtocol protocol,
+  ) async {
+    final provider = context.read<MerchantPrintersProvider>();
+    await provider.setPrinterProtocol(printer.id, protocol);
+    if (!mounted) return;
+    _showMessage(
+      '${printer.displayName} now uses ${_printerProtocolLabel(protocol)}. '
+      'Connect or run a test print to verify it.',
+    );
+  }
+
   void _showMessage(String message, {bool success = true}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -136,10 +152,17 @@ class _MerchantPrintersPageState extends State<MerchantPrintersPage> {
               onChanged: (value) => setState(() => _paperSize = value),
             ),
             const SizedBox(height: 12),
+            _ProtocolSelector(
+              value: _protocol,
+              supportsStarPrinting: provider.supportsStarPrinting,
+              onChanged: (value) => setState(() => _protocol = value),
+            ),
+            const SizedBox(height: 12),
             _SavedPrintersCard(
               provider: provider,
               onConnect: _connectPrinter,
               onTest: _testPrinter,
+              onProtocolChanged: _setPrinterProtocol,
             ),
             const SizedBox(height: 12),
             _NetworkPrinterCard(
@@ -173,6 +196,74 @@ class _MerchantPrintersPageState extends State<MerchantPrintersPage> {
                 onAdd: _addBrowserPrinter,
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProtocolSelector extends StatelessWidget {
+  const _ProtocolSelector({
+    required this.value,
+    required this.supportsStarPrinting,
+    required this.onChanged,
+  });
+
+  final MerchantPrinterProtocol value;
+  final bool supportsStarPrinting;
+  final ValueChanged<MerchantPrinterProtocol> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Protocol for newly added printers',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<MerchantPrinterProtocol>(
+              value: value,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Printer protocol',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                const DropdownMenuItem(
+                  value: MerchantPrinterProtocol.escPos,
+                  child: Text(
+                    'ESC/POS (generic receipt printers)',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                DropdownMenuItem(
+                  value: MerchantPrinterProtocol.starPrnt,
+                  enabled: supportsStarPrinting,
+                  child: const Text(
+                    'StarPRNT / Star Line (Star SDK)',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+              onChanged: (selected) {
+                if (selected != null) onChanged(selected);
+              },
+            ),
+            const SizedBox(height: 8),
+            Text(
+              supportsStarPrinting
+                  ? 'Choose StarPRNT / Star Line for Star TSP graphics-only printers. The receipt is rasterized and sent through the Star SDK.'
+                  : 'StarPRNT / Star Line printing is currently available in the Android app.',
+              style: TextStyle(color: Colors.grey.shade700),
+            ),
           ],
         ),
       ),
@@ -226,11 +317,14 @@ class _SavedPrintersCard extends StatelessWidget {
     required this.provider,
     required this.onConnect,
     required this.onTest,
+    required this.onProtocolChanged,
   });
 
   final MerchantPrintersProvider provider;
   final ValueChanged<MerchantPrinter> onConnect;
   final ValueChanged<MerchantPrinter> onTest;
+  final void Function(MerchantPrinter printer, MerchantPrinterProtocol protocol)
+  onProtocolChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -261,9 +355,18 @@ class _SavedPrintersCard extends StatelessWidget {
                   printer: printer,
                   isConnected: printer.id == provider.connectedPrinterId,
                   isBusy: provider.isBusy || provider.isPrinting,
+                  supportsStarPrinting: provider.supportsStarPrinting,
                   onConnect: () => onConnect(printer),
                   onTest: () => onTest(printer),
                   onSetDefault: () => provider.setDefaultPrinter(printer.id),
+                  onUseEscPos: () => onProtocolChanged(
+                    printer,
+                    MerchantPrinterProtocol.escPos,
+                  ),
+                  onUseStarPrnt: () => onProtocolChanged(
+                    printer,
+                    MerchantPrinterProtocol.starPrnt,
+                  ),
                   onRemove: () => provider.removePrinter(printer.id),
                 ),
               ),
@@ -279,18 +382,24 @@ class _PrinterTile extends StatelessWidget {
     required this.printer,
     required this.isConnected,
     required this.isBusy,
+    required this.supportsStarPrinting,
     required this.onConnect,
     required this.onTest,
     required this.onSetDefault,
+    required this.onUseEscPos,
+    required this.onUseStarPrnt,
     required this.onRemove,
   });
 
   final MerchantPrinter printer;
   final bool isConnected;
   final bool isBusy;
+  final bool supportsStarPrinting;
   final VoidCallback onConnect;
   final VoidCallback onTest;
   final VoidCallback onSetDefault;
+  final VoidCallback onUseEscPos;
+  final VoidCallback onUseStarPrnt;
   final VoidCallback onRemove;
 
   @override
@@ -365,6 +474,7 @@ class _PrinterTile extends StatelessWidget {
             printer.connectionLabel,
             printer.targetLabel,
             printer.paperSizeLabel,
+            printer.protocolLabel,
             if (printer.lastConnectedAt != null)
               'Last connected ${_formatDateTime(printer.lastConnectedAt!)}',
           ].join(' · '),
@@ -381,6 +491,10 @@ class _PrinterTile extends StatelessWidget {
               onTest();
             case _PrinterAction.setDefault:
               onSetDefault();
+            case _PrinterAction.useEscPos:
+              onUseEscPos();
+            case _PrinterAction.useStarPrnt:
+              onUseStarPrnt();
             case _PrinterAction.remove:
               onRemove();
           }
@@ -399,6 +513,19 @@ class _PrinterTile extends StatelessWidget {
               value: _PrinterAction.setDefault,
               child: Text('Set default'),
             ),
+          if (printer.connectionType != MerchantPrinterConnectionType.browser &&
+              printer.protocol != MerchantPrinterProtocol.escPos)
+            const PopupMenuItem(
+              value: _PrinterAction.useEscPos,
+              child: Text('Use ESC/POS'),
+            ),
+          if (printer.connectionType != MerchantPrinterConnectionType.browser &&
+              supportsStarPrinting &&
+              printer.protocol != MerchantPrinterProtocol.starPrnt)
+            const PopupMenuItem(
+              value: _PrinterAction.useStarPrnt,
+              child: Text('Use StarPRNT / Star Line'),
+            ),
           const PopupMenuItem(
             value: _PrinterAction.remove,
             child: Text('Remove'),
@@ -409,7 +536,14 @@ class _PrinterTile extends StatelessWidget {
   }
 }
 
-enum _PrinterAction { connect, test, setDefault, remove }
+enum _PrinterAction {
+  connect,
+  test,
+  setDefault,
+  useEscPos,
+  useStarPrnt,
+  remove,
+}
 
 class _NetworkPrinterCard extends StatelessWidget {
   const _NetworkPrinterCard({
@@ -569,7 +703,7 @@ class _BluetoothPrinterCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               supportsBluetooth
-                  ? 'Pair the printer in system Bluetooth settings first, then scan here.'
+                  ? 'Keep the printer on and discoverable, then scan for nearby or paired devices.'
                   : 'Bluetooth receipt printing is not available on this platform.',
               style: TextStyle(color: Colors.grey.shade700),
             ),
@@ -743,4 +877,11 @@ String _formatDateTime(DateTime date) {
   final hour = local.hour.toString().padLeft(2, '0');
   final minute = local.minute.toString().padLeft(2, '0');
   return '${local.year}-$month-$day $hour:$minute';
+}
+
+String _printerProtocolLabel(MerchantPrinterProtocol protocol) {
+  return switch (protocol) {
+    MerchantPrinterProtocol.escPos => 'ESC/POS',
+    MerchantPrinterProtocol.starPrnt => 'StarPRNT / Star Line',
+  };
 }

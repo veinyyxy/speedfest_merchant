@@ -18,9 +18,19 @@ class _UnsupportedPrinterPlatform implements MerchantPrinterPlatform {
   bool get supportsNetwork => false;
 
   @override
+  bool get supportsStarPrinting => false;
+
+  @override
   Future<void> connectBluetoothPrinter(MerchantPrinter printer) {
     throw const MerchantPrinterException(
       'Bluetooth printing is not available on this platform.',
+    );
+  }
+
+  @override
+  Future<void> connectStarPrinter(MerchantPrinter printer) {
+    throw const MerchantPrinterException(
+      'Star printer support is not available on this platform.',
     );
   }
 
@@ -62,6 +72,13 @@ class _UnsupportedPrinterPlatform implements MerchantPrinterPlatform {
   Future<void> printNetworkBytes(MerchantPrinter printer, List<int> bytes) {
     throw const MerchantPrinterException(
       'Network printing is not available on this platform.',
+    );
+  }
+
+  @override
+  Future<void> printStarText(MerchantPrinter printer, String text) {
+    throw const MerchantPrinterException(
+      'Star printer support is not available on this platform.',
     );
   }
 

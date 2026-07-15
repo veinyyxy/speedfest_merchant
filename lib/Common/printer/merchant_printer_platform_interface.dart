@@ -4,6 +4,7 @@ abstract class MerchantPrinterPlatform {
   bool get supportsBluetooth;
   bool get supportsNetwork;
   bool get supportsBrowserPrint;
+  bool get supportsStarPrinting;
 
   Future<List<MerchantDiscoveredPrinter>> discoverBluetoothPrinters();
 
@@ -15,9 +16,13 @@ abstract class MerchantPrinterPlatform {
 
   Future<void> probeNetworkPrinter(MerchantPrinter printer);
 
+  Future<void> connectStarPrinter(MerchantPrinter printer);
+
   Future<void> printBluetoothBytes(MerchantPrinter printer, List<int> bytes);
 
   Future<void> printNetworkBytes(MerchantPrinter printer, List<int> bytes);
+
+  Future<void> printStarText(MerchantPrinter printer, String text);
 
   Future<void> printBrowserText({
     required String title,

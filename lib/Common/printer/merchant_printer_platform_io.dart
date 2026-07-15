@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter_classic_bluetooth/flutter_classic_bluetooth.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 
@@ -17,6 +19,12 @@ class _IoPrinterPlatform implements MerchantPrinterPlatform {
   static const _networkConnectTimeout = Duration(milliseconds: 450);
   static const _networkPrintTimeout = Duration(seconds: 6);
   static const _bluetoothConnectTimeout = Duration(seconds: 15);
+  static const _bluetoothScanTimeout = Duration(seconds: 8);
+  static final _classicBluetooth = FlutterClassicBluetooth();
+  static const _starPrinterChannel = MethodChannel(
+    'speedfeast_merchant/star_printer',
+  );
+  static BtcConnection? _androidClassicConnection;
 
   @override
   bool get supportsBluetooth =>
@@ -32,6 +40,9 @@ class _IoPrinterPlatform implements MerchantPrinterPlatform {
   bool get supportsNetwork => true;
 
   @override
+  bool get supportsStarPrinting => Platform.isAndroid;
+
+  @override
   Future<List<MerchantDiscoveredPrinter>> discoverBluetoothPrinters() async {
     _ensureBluetoothPlatform();
     await _ensureBluetoothPermission();
@@ -41,17 +52,12 @@ class _IoPrinterPlatform implements MerchantPrinterPlatform {
       throw const MerchantPrinterException('Bluetooth is turned off.');
     }
 
+    if (Platform.isAndroid) {
+      return _discoverAndroidBluetoothPrinters();
+    }
+
     final printers = await PrintBluetoothThermal.pairedBluetooths;
-    return printers
-        .map(
-          (printer) => MerchantDiscoveredPrinter(
-            name: printer.name,
-            connectionType: MerchantPrinterConnectionType.bluetooth,
-            address: printer.macAdress,
-            port: 0,
-          ),
-        )
-        .toList(growable: false);
+    return printers.map(_thermalPrinterDiscovery).toList(growable: false);
   }
 
   @override
@@ -102,6 +108,15 @@ class _IoPrinterPlatform implements MerchantPrinterPlatform {
       );
     }
 
+    if (Platform.isAndroid && !await _isPairedClassicDevice(address)) {
+      await _pairAndroidClassicDevice(address);
+    }
+
+    if (Platform.isAndroid) {
+      await _connectAndroidClassicPrinter(address);
+      return;
+    }
+
     final connected = await PrintBluetoothThermal.connect(
       macPrinterAddress: address,
     ).timeout(_bluetoothConnectTimeout);
@@ -110,6 +125,20 @@ class _IoPrinterPlatform implements MerchantPrinterPlatform {
         'Could not connect to ${printer.displayName}.',
       );
     }
+  }
+
+  @override
+  Future<void> connectStarPrinter(MerchantPrinter printer) async {
+    _ensureStarPrinterPlatform();
+    if (printer.isBluetooth) {
+      await _ensureBluetoothPermission();
+      if (!await _isPairedClassicDevice(printer.address)) {
+        await _pairAndroidClassicDevice(printer.address);
+      }
+      await _closeAndroidClassicConnection();
+    }
+
+    await _invokeStarPrinterMethod('probe', _starPrinterArguments(printer));
   }
 
   @override
@@ -136,6 +165,32 @@ class _IoPrinterPlatform implements MerchantPrinterPlatform {
   ) async {
     _ensureBluetoothPlatform();
     await _ensureBluetoothPermission();
+
+    if (Platform.isAndroid) {
+      var connection = _androidClassicConnection;
+      if (connection == null ||
+          !connection.isConnected ||
+          connection.address.toLowerCase() != printer.address.toLowerCase()) {
+        await connectBluetoothPrinter(printer);
+        connection = _androidClassicConnection;
+      }
+      if (connection == null || !connection.isConnected) {
+        throw MerchantPrinterException(
+          'Could not connect to ${printer.displayName}.',
+        );
+      }
+
+      try {
+        await connection.output.writeBytes(bytes);
+        await connection.output.allSent;
+      } catch (err) {
+        await _closeAndroidClassicConnection();
+        throw MerchantPrinterException(
+          'Could not send print data to ${printer.displayName}: $err',
+        );
+      }
+      return;
+    }
 
     var connected = await PrintBluetoothThermal.connectionStatus;
     if (!connected) {
@@ -199,6 +254,60 @@ class _IoPrinterPlatform implements MerchantPrinterPlatform {
     }
   }
 
+  @override
+  Future<void> printStarText(MerchantPrinter printer, String text) async {
+    _ensureStarPrinterPlatform();
+    if (printer.isBluetooth) {
+      await _ensureBluetoothPermission();
+      if (!await _isPairedClassicDevice(printer.address)) {
+        await _pairAndroidClassicDevice(printer.address);
+      }
+      await _closeAndroidClassicConnection();
+    }
+    if (!printer.isBluetooth && !printer.isNetwork) {
+      throw const MerchantPrinterException(
+        'Star printing requires a Bluetooth or IP printer.',
+      );
+    }
+
+    await _invokeStarPrinterMethod('printText', {
+      ..._starPrinterArguments(printer),
+      'text': text,
+      'paperWidthDots': switch (printer.paperSize) {
+        MerchantPrinterPaperSize.mm58 => 384,
+        MerchantPrinterPaperSize.mm80 => 576,
+      },
+      'lineWidth': printer.lineWidth,
+    });
+  }
+
+  Map<String, Object> _starPrinterArguments(MerchantPrinter printer) {
+    return {
+      'interface': printer.isBluetooth ? 'bluetooth' : 'lan',
+      'identifier': printer.address.trim(),
+    };
+  }
+
+  Future<void> _invokeStarPrinterMethod(
+    String method,
+    Map<String, Object> arguments,
+  ) async {
+    try {
+      await _starPrinterChannel.invokeMethod<void>(method, arguments);
+    } on PlatformException catch (err) {
+      final message = err.message?.trim();
+      throw MerchantPrinterException(
+        message?.isNotEmpty == true
+            ? message!
+            : 'Star printer operation failed (${err.code}).',
+      );
+    } on MissingPluginException {
+      throw const MerchantPrinterException(
+        'Star printer support is not installed in this app build.',
+      );
+    }
+  }
+
   void _ensureBluetoothPlatform() {
     if (!supportsBluetooth) {
       throw const MerchantPrinterException(
@@ -207,8 +316,20 @@ class _IoPrinterPlatform implements MerchantPrinterPlatform {
     }
   }
 
+  void _ensureStarPrinterPlatform() {
+    if (!supportsStarPrinting) {
+      throw const MerchantPrinterException(
+        'StarPRNT / Star Line printing is currently available on Android.',
+      );
+    }
+  }
+
   Future<void> _ensureBluetoothPermission() async {
     if (Platform.isAndroid) {
+      // Android 11 and earlier require location permission for classic
+      // Bluetooth discovery. On newer Android versions this is a no-op because
+      // ACCESS_FINE_LOCATION is capped at API 30 in the manifest.
+      await Permission.locationWhenInUse.request();
       final statuses = await [
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
@@ -229,6 +350,144 @@ class _IoPrinterPlatform implements MerchantPrinterPlatform {
           'Bluetooth permission is required to use a receipt printer.',
         );
       }
+    }
+  }
+
+  Future<List<MerchantDiscoveredPrinter>>
+  _discoverAndroidBluetoothPrinters() async {
+    final discoveries = <String, MerchantDiscoveredPrinter>{};
+
+    try {
+      final pairedPrinters = await PrintBluetoothThermal.pairedBluetooths;
+      for (final printer in pairedPrinters) {
+        final discovered = _thermalPrinterDiscovery(printer);
+        discoveries[discovered.address.toLowerCase()] = discovered;
+      }
+    } catch (err) {
+      throw MerchantPrinterException(
+        'Could not read paired Bluetooth devices: $err',
+      );
+    }
+
+    try {
+      final nearby = await _classicBluetooth.scan(
+        timeout: _bluetoothScanTimeout,
+      );
+      for (final device in nearby) {
+        final address = device.address.trim();
+        if (address.isEmpty) continue;
+        discoveries.putIfAbsent(
+          address.toLowerCase(),
+          () => MerchantDiscoveredPrinter(
+            name: device.displayName,
+            connectionType: MerchantPrinterConnectionType.bluetooth,
+            address: address,
+            port: 0,
+          ),
+        );
+      }
+    } catch (err) {
+      throw MerchantPrinterException(
+        'Could not scan nearby Bluetooth devices: $err',
+      );
+    }
+
+    final result = discoveries.values.toList();
+    result.sort(
+      (left, right) => left.displayName.toLowerCase().compareTo(
+        right.displayName.toLowerCase(),
+      ),
+    );
+    return result;
+  }
+
+  MerchantDiscoveredPrinter _thermalPrinterDiscovery(BluetoothInfo printer) {
+    return MerchantDiscoveredPrinter(
+      name: printer.name,
+      connectionType: MerchantPrinterConnectionType.bluetooth,
+      address: printer.macAdress,
+      port: 0,
+    );
+  }
+
+  Future<bool> _isPairedClassicDevice(String address) async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final paired = await _classicBluetooth.getPairedDevices();
+      final normalizedAddress = address.trim().toLowerCase();
+      return paired.any(
+        (device) => device.address.trim().toLowerCase() == normalizedAddress,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _pairAndroidClassicDevice(String address) async {
+    try {
+      final paired = await _classicBluetooth
+          .bondDevice(address)
+          .timeout(const Duration(seconds: 30));
+      if (!paired) {
+        throw const MerchantPrinterException(
+          'Pairing was not completed. Accept the Bluetooth pairing prompt and try again.',
+        );
+      }
+    } on MerchantPrinterException {
+      rethrow;
+    } catch (err) {
+      throw MerchantPrinterException(
+        'Could not pair with the Bluetooth printer: $err',
+      );
+    }
+  }
+
+  Future<void> _connectAndroidClassicPrinter(String address) async {
+    final existing = _androidClassicConnection;
+    if (existing != null &&
+        existing.isConnected &&
+        existing.address.toLowerCase() == address.toLowerCase()) {
+      return;
+    }
+    await _closeAndroidClassicConnection();
+
+    Object? secureError;
+    try {
+      _androidClassicConnection = await _classicBluetooth.connect(
+        address: address,
+        secure: true,
+        timeout: _bluetoothConnectTimeout,
+      );
+      return;
+    } catch (err) {
+      secureError = err;
+    }
+
+    try {
+      _androidClassicConnection = await _classicBluetooth.connect(
+        address: address,
+        secure: false,
+        timeout: _bluetoothConnectTimeout,
+      );
+    } catch (err) {
+      throw MerchantPrinterException(
+        'Could not open the printer SPP connection. '
+        'Secure connection failed: $secureError; '
+        'insecure connection failed: $err',
+      );
+    }
+  }
+
+  Future<void> _closeAndroidClassicConnection() async {
+    final connection = _androidClassicConnection;
+    _androidClassicConnection = null;
+    if (connection == null) return;
+    try {
+      await connection.close();
+    } catch (_) {
+      // The printer may already have closed the RFCOMM socket.
+    } finally {
+      connection.dispose();
     }
   }
 

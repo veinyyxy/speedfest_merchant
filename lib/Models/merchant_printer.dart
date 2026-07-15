@@ -6,6 +6,7 @@ class MerchantPrinter {
     required this.address,
     required this.port,
     required this.paperSize,
+    this.protocol = MerchantPrinterProtocol.escPos,
     required this.isDefault,
     required this.lastConnectedAt,
   });
@@ -16,6 +17,7 @@ class MerchantPrinter {
   final String address;
   final int port;
   final MerchantPrinterPaperSize paperSize;
+  final MerchantPrinterProtocol protocol;
   final bool isDefault;
   final DateTime? lastConnectedAt;
 
@@ -45,6 +47,13 @@ class MerchantPrinter {
     };
   }
 
+  String get protocolLabel {
+    return switch (protocol) {
+      MerchantPrinterProtocol.escPos => 'ESC/POS',
+      MerchantPrinterProtocol.starPrnt => 'StarPRNT / Star Line',
+    };
+  }
+
   int get lineWidth {
     return switch (paperSize) {
       MerchantPrinterPaperSize.mm58 => 32,
@@ -59,6 +68,7 @@ class MerchantPrinter {
     String? address,
     int? port,
     MerchantPrinterPaperSize? paperSize,
+    MerchantPrinterProtocol? protocol,
     bool? isDefault,
     DateTime? lastConnectedAt,
     bool clearLastConnectedAt = false,
@@ -70,6 +80,7 @@ class MerchantPrinter {
       address: address ?? this.address,
       port: port ?? this.port,
       paperSize: paperSize ?? this.paperSize,
+      protocol: protocol ?? this.protocol,
       isDefault: isDefault ?? this.isDefault,
       lastConnectedAt: clearLastConnectedAt
           ? null
@@ -85,6 +96,7 @@ class MerchantPrinter {
       'address': address,
       'port': port,
       'paper_size': paperSize.name,
+      'protocol': protocol.name,
       'is_default': isDefault,
       'last_connected_at': lastConnectedAt?.toIso8601String(),
     };
@@ -98,6 +110,7 @@ class MerchantPrinter {
       address: _readString(json['address']),
       port: _readInt(json['port'], fallback: 9100),
       paperSize: _readPaperSize(json['paper_size']),
+      protocol: _readProtocol(json['protocol']),
       isDefault: _readBool(json['is_default']),
       lastConnectedAt: DateTime.tryParse(
         _readString(json['last_connected_at']),
@@ -111,6 +124,7 @@ class MerchantPrinter {
     required String address,
     int port = 9100,
     MerchantPrinterPaperSize paperSize = MerchantPrinterPaperSize.mm80,
+    MerchantPrinterProtocol protocol = MerchantPrinterProtocol.escPos,
     bool isDefault = false,
   }) {
     return MerchantPrinter(
@@ -120,6 +134,7 @@ class MerchantPrinter {
       address: address,
       port: port,
       paperSize: paperSize,
+      protocol: protocol,
       isDefault: isDefault,
       lastConnectedAt: null,
     );
@@ -130,6 +145,7 @@ class MerchantPrinter {
     required String name,
     required String address,
     MerchantPrinterPaperSize paperSize = MerchantPrinterPaperSize.mm80,
+    MerchantPrinterProtocol protocol = MerchantPrinterProtocol.escPos,
     bool isDefault = false,
   }) {
     return MerchantPrinter(
@@ -139,6 +155,7 @@ class MerchantPrinter {
       address: address,
       port: 0,
       paperSize: paperSize,
+      protocol: protocol,
       isDefault: isDefault,
       lastConnectedAt: null,
     );
@@ -164,6 +181,7 @@ class MerchantDiscoveredPrinter {
   MerchantPrinter toPrinter({
     required String id,
     required MerchantPrinterPaperSize paperSize,
+    required MerchantPrinterProtocol protocol,
     required bool isDefault,
   }) {
     return MerchantPrinter(
@@ -173,6 +191,7 @@ class MerchantDiscoveredPrinter {
       address: address,
       port: port,
       paperSize: paperSize,
+      protocol: protocol,
       isDefault: isDefault,
       lastConnectedAt: null,
     );
@@ -182,6 +201,8 @@ class MerchantDiscoveredPrinter {
 enum MerchantPrinterConnectionType { bluetooth, network, browser }
 
 enum MerchantPrinterPaperSize { mm58, mm80 }
+
+enum MerchantPrinterProtocol { escPos, starPrnt }
 
 String _readString(dynamic value, {String fallback = ''}) {
   final text = value?.toString().trim() ?? '';
@@ -213,4 +234,13 @@ MerchantPrinterPaperSize _readPaperSize(dynamic value) {
     if (size.name == text) return size;
   }
   return MerchantPrinterPaperSize.mm80;
+}
+
+MerchantPrinterProtocol _readProtocol(dynamic value) {
+  final text = value?.toString().trim().toLowerCase() ?? '';
+  for (final protocol in MerchantPrinterProtocol.values) {
+    if (protocol.name.toLowerCase() == text) return protocol;
+  }
+  // Printers saved before protocol selection was introduced used ESC/POS.
+  return MerchantPrinterProtocol.escPos;
 }

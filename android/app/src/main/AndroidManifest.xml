@@ -1,12 +1,20 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!--
+      Kept on Android 12+ for compatibility with classic RFCOMM printer
+      stacks that still enforce the legacy permissions while opening a socket.
+    -->
     <uses-permission
         android:name="android.permission.BLUETOOTH"
-        android:maxSdkVersion="30" />
+        tools:remove="android:maxSdkVersion" />
     <uses-permission
         android:name="android.permission.BLUETOOTH_ADMIN"
+        tools:remove="android:maxSdkVersion" />
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
         android:maxSdkVersion="30" />
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"

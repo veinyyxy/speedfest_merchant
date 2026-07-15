@@ -24,9 +24,19 @@ class _WebPrinterPlatform implements MerchantPrinterPlatform {
   bool get supportsNetwork => false;
 
   @override
+  bool get supportsStarPrinting => false;
+
+  @override
   Future<void> connectBluetoothPrinter(MerchantPrinter printer) {
     throw const MerchantPrinterException(
       'Bluetooth receipt printing is not available on web.',
+    );
+  }
+
+  @override
+  Future<void> connectStarPrinter(MerchantPrinter printer) {
+    throw const MerchantPrinterException(
+      'Star printer support is not available on web.',
     );
   }
 
@@ -117,6 +127,13 @@ class _WebPrinterPlatform implements MerchantPrinterPlatform {
   Future<void> printNetworkBytes(MerchantPrinter printer, List<int> bytes) {
     throw const MerchantPrinterException(
       'Direct IP receipt printing is not available on web.',
+    );
+  }
+
+  @override
+  Future<void> printStarText(MerchantPrinter printer, String text) {
+    throw const MerchantPrinterException(
+      'Star printer support is not available on web.',
     );
   }
 

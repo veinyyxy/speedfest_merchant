@@ -49,6 +49,7 @@ class MerchantPrintersProvider with ChangeNotifier {
   bool get supportsBluetooth => _platform.supportsBluetooth;
   bool get supportsNetwork => _platform.supportsNetwork;
   bool get supportsBrowserPrint => _platform.supportsBrowserPrint;
+  bool get supportsStarPrinting => _platform.supportsStarPrinting;
   MerchantPrinter? get defaultPrinter {
     for (final printer in _printers) {
       if (printer.isDefault) return printer;
@@ -109,6 +110,7 @@ class MerchantPrintersProvider with ChangeNotifier {
     required String address,
     required int port,
     required MerchantPrinterPaperSize paperSize,
+    required MerchantPrinterProtocol protocol,
   }) async {
     final cleanAddress = address.trim();
     if (cleanAddress.isEmpty) {
@@ -126,6 +128,7 @@ class MerchantPrintersProvider with ChangeNotifier {
       address: cleanAddress,
       port: port,
       paperSize: paperSize,
+      protocol: protocol,
       isDefault: _printers.isEmpty,
     );
 
@@ -135,10 +138,12 @@ class MerchantPrintersProvider with ChangeNotifier {
   Future<bool> addDiscoveredPrinter(
     MerchantDiscoveredPrinter discovered, {
     required MerchantPrinterPaperSize paperSize,
+    required MerchantPrinterProtocol protocol,
   }) {
     final printer = discovered.toPrinter(
       id: _newPrinterId(),
       paperSize: paperSize,
+      protocol: protocol,
       isDefault: _printers.isEmpty,
     );
     return _connectAndSave(printer);
@@ -248,6 +253,22 @@ class MerchantPrintersProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setPrinterProtocol(
+    String printerId,
+    MerchantPrinterProtocol protocol,
+  ) async {
+    _printers = _printers
+        .map(
+          (printer) => printer.id == printerId
+              ? printer.copyWith(protocol: protocol)
+              : printer,
+        )
+        .toList(growable: false);
+    if (_connectedPrinterId == printerId) _connectedPrinterId = '';
+    await _savePrinters();
+    notifyListeners();
+  }
+
   Future<void> removePrinter(String printerId) async {
     _printers = _printers
         .where((printer) => printer.id != printerId)
@@ -263,17 +284,22 @@ class MerchantPrintersProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      switch (printer.connectionType) {
-        case MerchantPrinterConnectionType.bluetooth:
-          await _platform.connectBluetoothPrinter(printer);
-        case MerchantPrinterConnectionType.network:
-          await _platform.probeNetworkPrinter(printer);
-        case MerchantPrinterConnectionType.browser:
-          if (!supportsBrowserPrint) {
-            throw const MerchantPrinterException(
-              'Browser print preview is not available on this platform.',
-            );
-          }
+      if (printer.protocol == MerchantPrinterProtocol.starPrnt &&
+          printer.connectionType != MerchantPrinterConnectionType.browser) {
+        await _platform.connectStarPrinter(printer);
+      } else {
+        switch (printer.connectionType) {
+          case MerchantPrinterConnectionType.bluetooth:
+            await _platform.connectBluetoothPrinter(printer);
+          case MerchantPrinterConnectionType.network:
+            await _platform.probeNetworkPrinter(printer);
+          case MerchantPrinterConnectionType.browser:
+            if (!supportsBrowserPrint) {
+              throw const MerchantPrinterException(
+                'Browser print preview is not available on this platform.',
+              );
+            }
+        }
       }
 
       final savedPrinter = _upsertPrinter(
@@ -298,6 +324,12 @@ class MerchantPrintersProvider with ChangeNotifier {
     required String title,
     String? html,
   }) async {
+    if (printer.protocol == MerchantPrinterProtocol.starPrnt &&
+        printer.connectionType != MerchantPrinterConnectionType.browser) {
+      await _platform.printStarText(printer, text);
+      return;
+    }
+
     switch (printer.connectionType) {
       case MerchantPrinterConnectionType.bluetooth:
         await _platform.printBluetoothBytes(printer, bytes);

@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_windows
   firebase_core
+  flutter_classic_bluetooth
   permission_handler_windows
   print_bluetooth_thermal
 )

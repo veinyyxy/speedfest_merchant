@@ -17,6 +17,7 @@ class MainActivity : FlutterActivity() {
     private val localNotificationsChannel = "speedfeast_merchant/local_notifications"
     private var localNotificationMethodChannel: MethodChannel? = null
     private var pendingNotificationTapPayload: Map<String, String>? = null
+    private var starPrinterChannel: StarPrinterChannel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,6 +28,11 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         pendingNotificationTapPayload =
             readNotificationTapPayload(intent) ?: pendingNotificationTapPayload
+
+        starPrinterChannel = StarPrinterChannel(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger
+        ).also { it.register() }
 
         localNotificationMethodChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -55,6 +61,12 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        starPrinterChannel?.dispose()
+        starPrinterChannel = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     override fun onNewIntent(intent: Intent) {
