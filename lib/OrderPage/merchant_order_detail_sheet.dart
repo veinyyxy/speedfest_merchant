@@ -232,11 +232,11 @@ class _ItemLine extends StatelessWidget {
               Text('CAD \$${item.price.toStringAsFixed(2)}'),
             ],
           ),
-          if (item.optionsLabel.isNotEmpty) ...[
+          if (item.optionGroups.isNotEmpty) ...[
             const SizedBox(height: 3),
-            Text(
-              item.optionsLabel,
-              style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+            ...item.optionGroups.entries.map(
+              (entry) =>
+                  _OptionGroupLines(groupName: entry.key, options: entry.value),
             ),
           ],
           if (item.reviewRating > 0) ...[
@@ -250,6 +250,56 @@ class _ItemLine extends StatelessWidget {
               style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _OptionGroupLines extends StatelessWidget {
+  const _OptionGroupLines({required this.groupName, required this.options});
+
+  final String groupName;
+  final List<MerchantOrderItemOption> options;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Colors.grey.shade700;
+    final displayGroupName = groupName.trim().isEmpty ? 'Options' : groupName;
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '-$displayGroupName:',
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          ...options.map(
+            (option) => Padding(
+              padding: const EdgeInsets.only(left: 14, top: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${option.quantity}x ${option.name}',
+                      style: TextStyle(color: color, fontSize: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'CAD \$${option.totalPrice.toStringAsFixed(2)}',
+                    style: TextStyle(color: color, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );

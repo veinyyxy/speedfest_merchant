@@ -482,8 +482,18 @@ MerchantOrder _previewReceiptOrder() {
         'quantity': 1,
         'subtotal': 12.5,
         'selected_options': [
-          {'group_name': 'Side', 'name': 'Fries'},
-          {'group_name': 'Drink', 'name': 'Cola'},
+          {
+            'group_name': 'Extra adding',
+            'name': 'Cheese',
+            'quantity': 1,
+            'unit_price': 1.0,
+          },
+          {
+            'group_name': 'Extra adding',
+            'name': 'Avocado',
+            'quantity': 2,
+            'unit_price': 1.0,
+          },
         ],
         'special_instructions': 'No onions',
       },

@@ -111,9 +111,9 @@ class ReceiptTemplateConfig {
     final templateId = _requiredString(json, 'templateId');
     final name = _requiredString(json, 'name');
     final currencySymbol = _readString(json['currencySymbol'], fallback: r'$');
-    if (currencySymbol.length > 4) {
+    if (currencySymbol.length > 8) {
       throw const ReceiptTemplateException(
-        'currencySymbol cannot be longer than 4 characters.',
+        'currencySymbol cannot be longer than 8 characters.',
       );
     }
 

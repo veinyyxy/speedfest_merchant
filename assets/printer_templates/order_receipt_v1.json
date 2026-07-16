@@ -277,14 +277,27 @@
         },
         {
           "type": "repeat",
-          "source": "item.optionLines",
-          "itemName": "option",
+          "source": "item.optionGroups",
+          "itemName": "group",
           "children": [
             {
               "type": "text",
-              "field": "option.text",
-              "prefix": "  - ",
+              "template": "-{{group.name}}:",
               "style": "itemNote"
+            },
+            {
+              "type": "repeat",
+              "source": "group.options",
+              "itemName": "option",
+              "children": [
+                {
+                  "type": "moneyRow",
+                  "label": "{{option.quantity}}x {{option.name}}",
+                  "amountField": "option.price",
+                  "prefix": "    ",
+                  "style": "itemNote"
+                }
+              ]
             }
           ]
         },

@@ -11,7 +11,7 @@ Supported section types:
   `spaceBeforeDots` / `spaceAfterDots`
 - `text`: `field` or `template`, optional `fallback`, `prefix`, `style`, `when`
 - `separator`: one-character `character`
-- `moneyRow`: `label` template and numeric `amountField`
+- `moneyRow`: `label` template and numeric `amountField`, optional `prefix`
 - `repeat`: `source`, `itemName`, and nested `children`
 - `feed`: `lines` from 0 to 10
 - `cut`: `mode` is `none` or `partial`
@@ -28,8 +28,9 @@ Available order fields:
 - `order.shortId`, `order.fulfillmentLabel`, `order.paymentLabel`,
   `order.dueAtLabel`, `order.itemCountLabel`, `order.hasItems`, `order.items`
 - Each item: `item.quantity`, `item.name`, `item.price`, `item.isReward`,
-  `item.instructions`, `item.optionLines`
-- Each option line: `option.text`
+  `item.instructions`, `item.optionGroups`
+- Each option group: `group.name`, `group.options`
+- Each option: `option.quantity`, `option.name`, `option.price`
 - `pricing.subtotal`, `pricing.deliveryFee`, `pricing.serviceFee`, `pricing.tax`,
   `pricing.tip`, `pricing.refunded`, `pricing.hasRefund`, `pricing.total`
 

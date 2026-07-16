@@ -66,7 +66,18 @@ void main() {
           'quantity': 1,
           'subtotal': 12.5,
           'selected_options': [
-            {'group_name': 'Side', 'name': 'Fries'},
+            {
+              'group_name': 'Extra adding',
+              'name': 'Cheese',
+              'quantity': 1,
+              'unit_price': 1.0,
+            },
+            {
+              'group_name': 'Extra adding',
+              'name': 'Avocado',
+              'quantity': 2,
+              'unit_price': 1.0,
+            },
           ],
         },
       ],
@@ -82,6 +93,20 @@ void main() {
     expect(receipt.text, contains('Powered by Speedfeast'));
     expect(receipt.text, contains('1x Burger'));
     expect(receipt.text, contains(r'$12.50'));
+    expect(receipt.text, contains('-Extra adding:'));
+    expect(receipt.text, contains('1x Cheese'));
+    expect(receipt.text, contains(r'$1.00'));
+    expect(receipt.text, contains('2x Avocado'));
+    expect(receipt.text, contains(r'$2.00'));
+    expect(receipt.text, matches(RegExp(r'^-Extra adding:$', multiLine: true)));
+    expect(
+      receipt.text,
+      matches(RegExp(r'^ {4}1x Cheese +\$1\.00$', multiLine: true)),
+    );
+    expect(
+      receipt.text,
+      matches(RegExp(r'^ {4}2x Avocado +\$2\.00$', multiLine: true)),
+    );
     expect(receipt.text, isNot(contains('Delivery fee')));
     expect(receipt.text, isNot(matches(RegExp(r'-{3,}'))));
     expect(receipt.html, isNot(contains('Default order receipt')));
@@ -102,6 +127,20 @@ void main() {
     );
     expect(receipt.paperWidthDots, 576);
     expect(receipt.bitmapPng, isNull);
+
+    final narrowReceipt = await renderer.renderOrder(
+      order: order,
+      paperSize: MerchantPrinterPaperSize.mm58,
+      includeBitmap: false,
+    );
+    expect(
+      narrowReceipt.text,
+      matches(RegExp(r'^ {4}1x Cheese +\$1\.00$', multiLine: true)),
+    );
+    expect(
+      narrowReceipt.text,
+      matches(RegExp(r'^ {4}2x Avocado +\$2\.00$', multiLine: true)),
+    );
   });
 
   test('receipt masks the customer last name with its initial', () async {

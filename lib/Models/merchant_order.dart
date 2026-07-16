@@ -346,17 +346,24 @@ class MerchantOrderItem {
 
   bool get isRewardItem => itemSource.toLowerCase() == 'reward';
 
-  String get optionsLabel {
-    if (options.isEmpty) return '';
-    final grouped = <String, List<String>>{};
+  Map<String, List<MerchantOrderItemOption>> get optionGroups {
+    final grouped = <String, List<MerchantOrderItemOption>>{};
     for (final option in options) {
       if (option.name.isEmpty) continue;
-      grouped.putIfAbsent(option.groupName, () => <String>[]).add(option.name);
+      grouped
+          .putIfAbsent(option.groupName, () => <MerchantOrderItemOption>[])
+          .add(option);
     }
+    return Map<String, List<MerchantOrderItemOption>>.unmodifiable({
+      for (final entry in grouped.entries)
+        entry.key: List<MerchantOrderItemOption>.unmodifiable(entry.value),
+    });
+  }
 
-    return grouped.entries
+  String get optionsLabel {
+    return optionGroups.entries
         .map((entry) {
-          final names = entry.value.join(', ');
+          final names = entry.value.map((option) => option.name).join(', ');
           return entry.key.isEmpty ? names : '${entry.key}: $names';
         })
         .join(' · ');
@@ -466,24 +473,75 @@ class MerchantOrderReviewItem {
 }
 
 class MerchantOrderItemOption {
-  const MerchantOrderItemOption({required this.name, required this.groupName});
+  const MerchantOrderItemOption({
+    required this.name,
+    required this.groupName,
+    required this.quantity,
+    required this.totalPrice,
+  });
 
   final String name;
   final String groupName;
+  final int quantity;
+  final double totalPrice;
 
   factory MerchantOrderItemOption.fromJson(Map<String, dynamic> json) {
+    final parsedQuantity = _firstInt(json, const [
+      'quantity',
+      'qty',
+      'option_quantity',
+      'optionQuantity',
+      'selected_quantity',
+      'selectedQuantity',
+    ], fallback: 1);
+    final quantity = parsedQuantity > 0 ? parsedQuantity : 1;
+    final lineTotalValue = _firstValue(json, const [
+      'subtotal',
+      'line_total',
+      'lineTotal',
+      'total_price',
+      'totalPrice',
+      'total_amount',
+      'totalAmount',
+      'option_total',
+      'optionTotal',
+    ]);
+    final unitPriceValue = _firstValue(json, const [
+      'unit_price',
+      'unitPrice',
+      'base_price',
+      'basePrice',
+      'price_adjustment',
+      'priceAdjustment',
+      'option_price',
+      'optionPrice',
+      'additional_price',
+      'additionalPrice',
+    ]);
+    final fallbackPrice = _firstDouble(json, const ['price']);
+    final totalPrice = lineTotalValue != null
+        ? _doubleValue(lineTotalValue)
+        : unitPriceValue != null
+        ? _doubleValue(unitPriceValue) * quantity
+        : fallbackPrice;
+
     return MerchantOrderItemOption(
       name: _firstString(json, const [
         'option_name',
         'optionName',
         'name',
         'title',
+        'product_name',
+        'productName',
       ]),
       groupName: _firstString(json, const [
         'group_name',
         'groupName',
         'option_group_name',
+        'optionGroupName',
       ]),
+      quantity: quantity,
+      totalPrice: totalPrice,
     );
   }
 }
@@ -543,6 +601,10 @@ String _firstString(
 
 double _firstDouble(Map<String, dynamic> json, List<String> keys) {
   final value = _firstValue(json, keys);
+  return _doubleValue(value);
+}
+
+double _doubleValue(dynamic value) {
   if (value is num) return value.toDouble();
   return double.tryParse(value?.toString() ?? '') ?? 0;
 }

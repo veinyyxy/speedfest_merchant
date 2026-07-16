@@ -421,6 +421,7 @@ class _ReceiptLayoutEngine {
           _appendMoneyRow(
             state.lines,
             label: label,
+            prefix: element.prefix,
             amount: amount,
             currencySymbol: template.currencySymbol,
             style: style,
@@ -548,6 +549,7 @@ void _appendText(
 void _appendMoneyRow(
   List<_ReceiptDocumentLine> lines, {
   required String label,
+  required String prefix,
   required double amount,
   required String currencySymbol,
   required ReceiptStyleDefinition style,
@@ -559,7 +561,7 @@ void _appendMoneyRow(
   final number = amount.abs().toStringAsFixed(2);
   final formattedAmount = '$sign$currencySymbol$number';
   final amountStart = math.max(0, width - formattedAmount.length);
-  final labelWidth = math.max(4, amountStart - 1);
+  final labelWidth = math.max(4, amountStart - prefix.length - 1);
   final wrappedLabel = _wrapWords(cleanLabel, labelWidth);
   if (wrappedLabel.isEmpty) {
     lines.add(
@@ -568,7 +570,7 @@ void _appendMoneyRow(
     return;
   }
 
-  final firstLabel = wrappedLabel.first;
+  final firstLabel = '$prefix${wrappedLabel.first}';
   final gap = math.max(1, amountStart - firstLabel.length);
   lines.add(
     _ReceiptDocumentLine(
@@ -579,8 +581,11 @@ void _appendMoneyRow(
       moneyNumber: '$currencySymbol$number',
     ),
   );
+  final continuationPrefix = List.filled(prefix.length, ' ').join();
   for (final extra in wrappedLabel.skip(1)) {
-    lines.add(_ReceiptDocumentLine(text: extra, style: style));
+    lines.add(
+      _ReceiptDocumentLine(text: '$continuationPrefix$extra', style: style),
+    );
   }
 }
 
@@ -721,7 +726,8 @@ String _documentLineToHtml(_ReceiptDocumentLine line) {
     final number = const HtmlEscape().convert(line.moneyNumber!);
     return '<div style="display:flex; gap:8px; font-size:${fontSize}pt; '
         'font-weight:$weight; line-height:${line.style.bitmapLineHeight};">'
-        '<span style="flex:1 1 auto; overflow-wrap:anywhere;">$label</span>'
+        '<span style="flex:1 1 auto; overflow-wrap:anywhere; '
+        'white-space:pre-wrap;">$label</span>'
         '<span style="flex:0 0 auto; white-space:pre;">$sign$number</span>'
         '</div>';
   }
@@ -1080,9 +1086,19 @@ Map<String, dynamic> _orderContext(
             'price': item.price,
             'isReward': item.isRewardItem,
             'instructions': item.specialInstructions,
-            'optionLines': [
-              for (final text in item.optionsLabel.split(' · '))
-                if (text.trim().isNotEmpty) {'text': text.trim()},
+            'optionGroups': [
+              for (final group in item.optionGroups.entries)
+                {
+                  'name': group.key.trim().isEmpty ? 'Options' : group.key,
+                  'options': [
+                    for (final option in group.value)
+                      {
+                        'quantity': option.quantity,
+                        'name': option.name,
+                        'price': option.totalPrice,
+                      },
+                  ],
+                },
             ],
           },
       ],
