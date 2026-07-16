@@ -5,6 +5,7 @@ class MerchantProductCreateRequest {
     required this.name,
     required this.description,
     required this.basePrice,
+    required this.optionsAffectPrice,
     required this.status,
     required this.visibleInMenu,
     required this.categoryIds,
@@ -17,6 +18,7 @@ class MerchantProductCreateRequest {
   final String name;
   final String description;
   final double basePrice;
+  final bool optionsAffectPrice;
   final String status;
   final bool visibleInMenu;
   final List<int> categoryIds;
@@ -29,6 +31,7 @@ class MerchantProductCreateRequest {
       'name': name,
       'description': description,
       'base_price': basePrice,
+      'options_affect_price': optionsAffectPrice,
       'status': status,
       'visible_in_menu': visibleInMenu,
       'category_ids': categoryIds,

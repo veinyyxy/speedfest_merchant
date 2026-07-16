@@ -6,6 +6,7 @@ class MerchantOptionGroup {
     required this.minSelect,
     required this.maxSelect,
     required this.options,
+    this.linkedProductCount = 0,
   });
 
   final String id;
@@ -14,6 +15,7 @@ class MerchantOptionGroup {
   final int minSelect;
   final int maxSelect;
   final List<MerchantOptionGroupOption> options;
+  final int linkedProductCount;
 
   bool get isRequired => minSelect > 0;
   String get selectionLabel =>
@@ -40,6 +42,10 @@ class MerchantOptionGroup {
         'max_select',
         'maxSelect',
       ], fallback: 1),
+      linkedProductCount: _firstInt(json, const [
+        'linked_product_count',
+        'linkedProductCount',
+      ]),
       options: rawOptions
           .whereType<Map>()
           .map(

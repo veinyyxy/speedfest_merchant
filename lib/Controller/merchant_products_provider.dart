@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../Common/merchant_service_config.dart';
 import '../Models/merchant_category.dart';
 import '../Models/merchant_option_group.dart';
+import '../Models/merchant_option_group_update_request.dart';
 import '../Models/merchant_product.dart';
 import '../Models/merchant_product_create_request.dart';
 import 'signed_api_client.dart';
@@ -180,6 +181,53 @@ class MerchantProductsProvider with ChangeNotifier {
       _errorMessage = 'Unable to load option groups: $e';
     } finally {
       _isLoadingOptionGroups = false;
+      notifyListeners();
+    }
+  }
+
+  Future<MerchantOptionGroup?> updateOptionGroup({
+    required SignedApiClient apiClient,
+    required String token,
+    required MerchantOptionGroupUpdateRequest request,
+  }) async {
+    _isUpdating = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final rawResponse = await apiClient.post(
+        MerchantServiceConfig.merchantOptionGroupUpdatePath,
+        request.toJson(),
+        token: token,
+      );
+      final response = Map<String, dynamic>.from(rawResponse as Map);
+      final rawGroup = response['option_group'];
+      if (rawGroup is! Map) {
+        _errorMessage = 'Option group update did not return the saved group.';
+        return null;
+      }
+
+      final updated = MerchantOptionGroup.fromJson(
+        rawGroup.map<String, dynamic>(
+          (key, value) => MapEntry(key.toString(), value),
+        ),
+      );
+      _optionGroups = [
+        ..._optionGroups.where((group) => group.id != updated.id),
+        updated,
+      ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      _products = _products
+          .map((product) => product.withUpdatedOptionGroup(updated))
+          .toList(growable: false);
+      return updated;
+    } on AppException catch (e) {
+      _errorMessage = e.message;
+      return null;
+    } catch (e) {
+      _errorMessage = 'Unable to update option group: $e';
+      return null;
+    } finally {
+      _isUpdating = false;
       notifyListeners();
     }
   }

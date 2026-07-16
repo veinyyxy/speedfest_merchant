@@ -45,6 +45,8 @@ class MerchantServiceConfig {
   static const merchantCategoriesPath = '/api/merchant/categories';
   static const merchantCategoryCreatePath = '/api/merchant/categories/create';
   static const merchantOptionGroupsPath = '/api/merchant/option-groups';
+  static const merchantOptionGroupUpdatePath =
+      '/api/merchant/option-groups/update';
   static const merchantProductCreatePath = '/api/merchant/products/create';
   static const merchantProductUpdatePath = '/api/merchant/products/update';
   static const merchantProductStatusUpdatePath =

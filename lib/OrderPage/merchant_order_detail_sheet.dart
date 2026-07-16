@@ -293,7 +293,9 @@ class _OptionGroupLines extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   Text(
-                    'CAD \$${option.totalPrice.toStringAsFixed(2)}',
+                    option.totalPrice == 0
+                        ? 'Included'
+                        : 'CAD \$${option.totalPrice.toStringAsFixed(2)}',
                     style: TextStyle(color: color, fontSize: 12),
                   ),
                 ],

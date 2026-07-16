@@ -7,6 +7,7 @@ import '../Controller/merchant_products_provider.dart';
 import '../Controller/merchant_session_provider.dart';
 import '../Models/merchant_category.dart';
 import '../Models/merchant_option_group.dart';
+import '../Models/merchant_option_group_update_request.dart';
 import '../Models/merchant_product.dart';
 import '../Models/merchant_product_create_request.dart';
 
@@ -32,6 +33,7 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
 
   bool _loadedEditorData = false;
   bool _visibleInMenu = true;
+  bool _optionsAffectPrice = true;
   String _status = 'active';
   int? _categoryId;
   bool get _isEditing => widget.product != null;
@@ -49,6 +51,7 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
     _imageUrlController.text = product.imageUrl;
     _status = product.status;
     _visibleInMenu = product.visibleInMenu;
+    _optionsAffectPrice = product.optionsAffectPrice;
     if (product.categoryIds.isNotEmpty) {
       _categoryId = product.categoryIds.first;
     }
@@ -126,6 +129,7 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
       name: _nameController.text.trim(),
       description: _descriptionController.text.trim(),
       basePrice: _readDouble(_priceController.text),
+      optionsAffectPrice: _optionsAffectPrice,
       status: _status,
       visibleInMenu: _visibleInMenu,
       categoryIds: categoryIds,
@@ -284,6 +288,7 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MerchantProductsProvider>();
+    final isSaving = provider.isCreating || provider.isUpdating;
     final categories = provider.categories;
     final existingProducts = provider.products;
     final existingOptionGroups = provider.optionGroups;
@@ -297,10 +302,8 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
         title: Text(_isEditing ? 'Edit product' : 'Add product'),
         actions: [
           TextButton.icon(
-            onPressed: provider.isCreating || provider.isUploadingImage
-                ? null
-                : _save,
-            icon: provider.isCreating
+            onPressed: isSaving || provider.isUploadingImage ? null : _save,
+            icon: isSaving
                 ? const SizedBox(
                     width: 16,
                     height: 16,
@@ -468,10 +471,14 @@ class _MerchantProductEditorPageState extends State<MerchantProductEditorPage> {
             const SizedBox(height: 12),
             _OptionsSection(
               groups: _optionGroups,
+              optionsAffectPrice: _optionsAffectPrice,
               existingProducts: existingProducts,
               existingOptionGroups: existingOptionGroups,
               isUploadingImage: provider.isUploadingImage,
               onAddGroup: _addOptionGroup,
+              onOptionsAffectPriceChanged: (value) {
+                setState(() => _optionsAffectPrice = value);
+              },
               onUploadImage: _pickAndUploadImage,
               onChanged: () => setState(() {}),
             ),
@@ -702,19 +709,23 @@ class _CreateCategoryDialogState extends State<_CreateCategoryDialog> {
 class _OptionsSection extends StatelessWidget {
   const _OptionsSection({
     required this.groups,
+    required this.optionsAffectPrice,
     required this.existingProducts,
     required this.existingOptionGroups,
     required this.isUploadingImage,
     required this.onAddGroup,
+    required this.onOptionsAffectPriceChanged,
     required this.onUploadImage,
     required this.onChanged,
   });
 
   final List<_OptionGroupForm> groups;
+  final bool optionsAffectPrice;
   final List<MerchantProduct> existingProducts;
   final List<MerchantOptionGroup> existingOptionGroups;
   final bool isUploadingImage;
   final VoidCallback onAddGroup;
+  final ValueChanged<bool> onOptionsAffectPriceChanged;
   final Future<void> Function(TextEditingController controller) onUploadImage;
   final VoidCallback onChanged;
 
@@ -723,6 +734,18 @@ class _OptionsSection extends StatelessWidget {
     return _SectionCard(
       title: 'Options',
       children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Add option prices to total'),
+          subtitle: Text(
+            optionsAffectPrice
+                ? 'Selected options add their product prices to this product.'
+                : 'Selected options are included in this product\'s base price.',
+          ),
+          value: optionsAffectPrice,
+          onChanged: onOptionsAffectPriceChanged,
+        ),
+        const SizedBox(height: 8),
         if (groups.isEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
@@ -781,9 +804,65 @@ class _OptionGroupEditor extends StatelessWidget {
   final VoidCallback onChanged;
   final VoidCallback onRemove;
 
+  Future<void> _editExistingGroup(BuildContext context) async {
+    final selected = _findOptionGroup(
+      existingOptionGroups,
+      group.existingOptionGroupId,
+    );
+    if (selected == null) return;
+
+    final request = await showDialog<MerchantOptionGroupUpdateRequest>(
+      context: context,
+      builder: (dialogContext) => _EditExistingOptionGroupDialog(
+        optionGroup: selected,
+        existingProducts: existingProducts,
+      ),
+    );
+    if (request == null || !context.mounted) return;
+
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null) return;
+    final provider = context.read<MerchantProductsProvider>();
+    final updated = await provider.updateOptionGroup(
+      apiClient: session.apiClient,
+      token: token,
+      request: request,
+    );
+    if (!context.mounted) return;
+
+    if (updated == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            provider.errorMessage ?? 'Option group could not be updated.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    group.existingOptionGroupId = updated.id;
+    onChanged();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Option group updated everywhere it is used.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final selectedExistingGroup = _findOptionGroup(
+      existingOptionGroups,
+      group.existingOptionGroupId,
+    );
+    final isUpdatingGroup = context
+        .watch<MerchantProductsProvider>()
+        .isUpdating;
     return Container(
       decoration: BoxDecoration(
         border: Border.all(color: Colors.grey.shade300),
@@ -827,38 +906,54 @@ class _OptionGroupEditor extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           if (group.useExistingGroup) ...[
-            DropdownButtonFormField<String>(
-              value: group.existingOptionGroupId,
-              decoration: const InputDecoration(
-                labelText: 'Option group',
-                border: OutlineInputBorder(),
-              ),
-              items: [
-                for (final optionGroup in existingOptionGroups)
-                  DropdownMenuItem(
-                    value: optionGroup.id,
-                    child: Text(
-                      '${optionGroup.name} · ${optionGroup.summary}',
-                      overflow: TextOverflow.ellipsis,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    value: group.existingOptionGroupId,
+                    decoration: const InputDecoration(
+                      labelText: 'Option group',
+                      border: OutlineInputBorder(),
                     ),
+                    items: [
+                      for (final optionGroup in existingOptionGroups)
+                        DropdownMenuItem(
+                          value: optionGroup.id,
+                          child: Text(
+                            '${optionGroup.name} · ${optionGroup.summary}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      group.existingOptionGroupId = value;
+                      onChanged();
+                    },
+                    validator: (value) {
+                      if (!group.useExistingGroup) return null;
+                      return value == null ? 'Choose an existing group' : null;
+                    },
                   ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  tooltip: 'Edit selected group',
+                  onPressed: selectedExistingGroup == null || isUpdatingGroup
+                      ? null
+                      : () => _editExistingGroup(context),
+                  icon: isUpdatingGroup
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.edit_outlined),
+                ),
               ],
-              onChanged: (value) {
-                group.existingOptionGroupId = value;
-                onChanged();
-              },
-              validator: (value) {
-                if (!group.useExistingGroup) return null;
-                return value == null ? 'Choose an existing group' : null;
-              },
             ),
             const SizedBox(height: 12),
-            _ExistingGroupSummary(
-              optionGroup: _findOptionGroup(
-                existingOptionGroups,
-                group.existingOptionGroupId,
-              ),
-            ),
+            _ExistingGroupSummary(optionGroup: selectedExistingGroup),
           ] else ...[
             TextFormField(
               controller: group.nameController,
@@ -1003,6 +1098,283 @@ class _ExistingGroupSummary extends StatelessWidget {
             : '${optionGroup!.summary}: $options',
         style: TextStyle(color: Colors.grey.shade800),
       ),
+    );
+  }
+}
+
+class _EditExistingOptionGroupDialog extends StatefulWidget {
+  const _EditExistingOptionGroupDialog({
+    required this.optionGroup,
+    required this.existingProducts,
+  });
+
+  final MerchantOptionGroup optionGroup;
+  final List<MerchantProduct> existingProducts;
+
+  @override
+  State<_EditExistingOptionGroupDialog> createState() =>
+      _EditExistingOptionGroupDialogState();
+}
+
+class _EditExistingOptionGroupDialogState
+    extends State<_EditExistingOptionGroupDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _maxSelectController;
+  late final List<String> _selectedProductIds;
+  late String _selectionType;
+  late bool _isRequired;
+  String _search = '';
+  String? _selectionError;
+
+  @override
+  void initState() {
+    super.initState();
+    final optionGroup = widget.optionGroup;
+    _nameController = TextEditingController(text: optionGroup.name);
+    _maxSelectController = TextEditingController(
+      text: optionGroup.maxSelect.toString(),
+    );
+    _selectedProductIds = [
+      for (final option in optionGroup.options)
+        if (option.id.isNotEmpty) option.id,
+    ];
+    _selectionType = optionGroup.selectionType;
+    _isRequired = optionGroup.isRequired;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _maxSelectController.dispose();
+    super.dispose();
+  }
+
+  void _toggleProduct(String productId, bool selected) {
+    setState(() {
+      if (selected) {
+        if (!_selectedProductIds.contains(productId)) {
+          _selectedProductIds.add(productId);
+        }
+      } else {
+        _selectedProductIds.remove(productId);
+      }
+      _selectionError = null;
+    });
+  }
+
+  void _submit() {
+    final valid = _formKey.currentState?.validate() ?? false;
+    if (_selectedProductIds.isEmpty) {
+      setState(() => _selectionError = 'Select at least one product.');
+      return;
+    }
+    if (!valid) return;
+
+    final maxSelect = _selectionType == 'single'
+        ? 1
+        : int.parse(_maxSelectController.text.trim());
+    Navigator.of(context).pop(
+      MerchantOptionGroupUpdateRequest(
+        optionGroupId: widget.optionGroup.id,
+        groupName: _nameController.text.trim(),
+        selectionType: _selectionType,
+        minSelect: _isRequired ? 1 : 0,
+        maxSelect: maxSelect,
+        optionProductIds: List<String>.unmodifiable(_selectedProductIds),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final query = _search.trim().toLowerCase();
+    final products = widget.existingProducts.where((product) {
+      if (query.isEmpty) return true;
+      return product.name.toLowerCase().contains(query) ||
+          product.sku.toLowerCase().contains(query);
+    }).toList();
+    products.sort((a, b) {
+      final aIndex = _selectedProductIds.indexOf(a.id);
+      final bIndex = _selectedProductIds.indexOf(b.id);
+      if (aIndex >= 0 && bIndex >= 0) return aIndex.compareTo(bIndex);
+      if (aIndex >= 0) return -1;
+      if (bIndex >= 0) return 1;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+
+    final linkedCount = widget.optionGroup.linkedProductCount;
+    final usageText = linkedCount == 1
+        ? 'This group is used by 1 product.'
+        : 'This group is used by $linkedCount products.';
+    final mediaQuery = MediaQuery.of(context);
+    final contentHeight =
+        (mediaQuery.size.height - mediaQuery.viewInsets.bottom - 250)
+            .clamp(240.0, 620.0)
+            .toDouble();
+
+    return AlertDialog(
+      title: const Text('Edit existing option group'),
+      content: SizedBox(
+        width: 620,
+        height: contentHeight,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: colorScheme.tertiaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: colorScheme.onTertiaryContainer,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '$usageText Saving here applies immediately to every product that uses it. '
+                        'Edit product names and prices from Products.',
+                        style: TextStyle(
+                          color: colorScheme.onTertiaryContainer,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Group name',
+                  border: OutlineInputBorder(),
+                ),
+                validator: _requiredValidator,
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'single', label: Text('Single')),
+                      ButtonSegment(value: 'multiple', label: Text('Multiple')),
+                    ],
+                    selected: {_selectionType},
+                    onSelectionChanged: (selection) {
+                      setState(() => _selectionType = selection.first);
+                    },
+                  ),
+                  FilterChip(
+                    label: const Text('Required'),
+                    selected: _isRequired,
+                    onSelected: (value) {
+                      setState(() => _isRequired = value);
+                    },
+                  ),
+                ],
+              ),
+              if (_selectionType == 'multiple') ...[
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _maxSelectController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Max choices',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    final max = int.tryParse(value?.trim() ?? '');
+                    if (max == null || max < 1) {
+                      return 'Enter a number above 0';
+                    }
+                    if (max > _selectedProductIds.length) {
+                      return 'Max cannot exceed selected products';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+              const SizedBox(height: 14),
+              TextField(
+                decoration: const InputDecoration(
+                  labelText: 'Find products',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (value) => setState(() => _search = value),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${_selectedProductIds.length} selected',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              if (_selectionError != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  _selectionError!,
+                  style: TextStyle(color: colorScheme.error),
+                ),
+              ],
+              const SizedBox(height: 4),
+              Expanded(
+                child: products.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No matching products.',
+                          style: TextStyle(color: Colors.grey.shade700),
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: products.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final product = products[index];
+                          final selected = _selectedProductIds.contains(
+                            product.id,
+                          );
+                          return CheckboxListTile(
+                            value: selected,
+                            onChanged: (value) =>
+                                _toggleProduct(product.id, value ?? false),
+                            controlAffinity: ListTileControlAffinity.leading,
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            title: Text(product.name),
+                            subtitle: Text(
+                              '\$${product.basePrice.toStringAsFixed(2)} · '
+                              '${product.statusLabel}',
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: _submit,
+          icon: const Icon(Icons.save_outlined),
+          label: const Text('Save group'),
+        ),
+      ],
     );
   }
 }

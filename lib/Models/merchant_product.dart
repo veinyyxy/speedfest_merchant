@@ -7,6 +7,7 @@ class MerchantProduct {
     required this.name,
     required this.description,
     required this.basePrice,
+    required this.optionsAffectPrice,
     required this.status,
     required this.visibleInMenu,
     required this.imageUrl,
@@ -23,6 +24,7 @@ class MerchantProduct {
   final String name;
   final String description;
   final double basePrice;
+  final bool optionsAffectPrice;
   final String status;
   final bool visibleInMenu;
   final String imageUrl;
@@ -39,6 +41,31 @@ class MerchantProduct {
   String get statusLabel => status.isEmpty ? 'Unknown' : _humanize(status);
   bool get hasRatings => ratingCount > 0;
 
+  MerchantProduct withUpdatedOptionGroup(MerchantOptionGroup updatedGroup) {
+    if (!optionGroups.any((group) => group.id == updatedGroup.id)) return this;
+
+    return MerchantProduct(
+      id: id,
+      sku: sku,
+      name: name,
+      description: description,
+      basePrice: basePrice,
+      optionsAffectPrice: optionsAffectPrice,
+      status: status,
+      visibleInMenu: visibleInMenu,
+      imageUrl: imageUrl,
+      categoryIds: categoryIds,
+      categories: categories,
+      optionGroups: [
+        for (final group in optionGroups)
+          group.id == updatedGroup.id ? updatedGroup : group,
+      ],
+      isOptionProduct: isOptionProduct,
+      ratingAverage: ratingAverage,
+      ratingCount: ratingCount,
+    );
+  }
+
   factory MerchantProduct.fromJson(Map<String, dynamic> json) {
     return MerchantProduct(
       id: _firstString(json, const ['product_id', 'productId', 'id']),
@@ -50,6 +77,10 @@ class MerchantProduct {
       ], fallback: 'Item'),
       description: _firstString(json, const ['description']),
       basePrice: _firstDouble(json, const ['base_price', 'basePrice', 'price']),
+      optionsAffectPrice: _firstBool(json, const [
+        'options_affect_price',
+        'optionsAffectPrice',
+      ], fallback: true),
       status: _firstString(json, const ['status'], fallback: 'inactive'),
       visibleInMenu:
           json['visible_in_menu'] != false && json['visibleInMenu'] != false,
@@ -123,6 +154,22 @@ int _firstInt(Map<String, dynamic> json, List<String> keys) {
     if (parsed != null) return parsed;
   }
   return 0;
+}
+
+bool _firstBool(
+  Map<String, dynamic> json,
+  List<String> keys, {
+  required bool fallback,
+}) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final text = value?.toString().trim().toLowerCase();
+    if (text == 'true' || text == '1' || text == 'yes') return true;
+    if (text == 'false' || text == '0' || text == 'no') return false;
+  }
+  return fallback;
 }
 
 List<String> _readCategoryNames(dynamic value) {
