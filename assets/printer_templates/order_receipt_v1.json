@@ -166,6 +166,24 @@
   },
   "sections": [
     {
+      "type": "image",
+      "asset": "assets/printer_templates/print_logo.png",
+      "widthDots": 160,
+      "position": "center",
+      "spaceBeforeDots": 0,
+      "spaceAfterDots": 6,
+      "style": "normal"
+    },
+    {
+      "type": "separator",
+      "widthPercent": 100,
+      "position": "center",
+      "thicknessDots": 2,
+      "spaceBeforeDots": 0,
+      "spaceAfterDots": 6,
+      "style": "separator"
+    },
+    {
       "type": "text",
       "field": "app.name",
       "style": "brand"
@@ -185,6 +203,19 @@
       "type": "text",
       "field": "customer.displayName",
       "style": "customer",
+      "when": {
+        "field": "customer.displayName",
+        "operator": "notEmpty"
+      }
+    },
+    {
+      "type": "separator",
+      "widthPercent": 100,
+      "position": "center",
+      "thicknessDots": 2,
+      "spaceBeforeDots": 6,
+      "spaceAfterDots": 6,
+      "style": "separator",
       "when": {
         "field": "customer.displayName",
         "operator": "notEmpty"
@@ -374,6 +405,24 @@
     }
   ],
   "testSections": [
+    {
+      "type": "image",
+      "asset": "assets/printer_templates/print_logo.png",
+      "widthDots": 160,
+      "position": "center",
+      "spaceBeforeDots": 0,
+      "spaceAfterDots": 6,
+      "style": "normal"
+    },
+    {
+      "type": "separator",
+      "widthPercent": 100,
+      "position": "center",
+      "thicknessDots": 2,
+      "spaceBeforeDots": 0,
+      "spaceAfterDots": 6,
+      "style": "separator"
+    },
     {
       "type": "text",
       "field": "app.name",

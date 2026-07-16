@@ -7,6 +7,8 @@ storage or download.
 
 Supported section types:
 
+- `image`: bundled PNG `asset`, `widthDots`, `position`, and optional
+  `spaceBeforeDots` / `spaceAfterDots`
 - `text`: `field` or `template`, optional `fallback`, `prefix`, `style`, `when`
 - `separator`: one-character `character`
 - `moneyRow`: `label` template and numeric `amountField`

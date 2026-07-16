@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
+import 'package:flutter/services.dart';
 
 import '../../Models/merchant_buyer_config.dart';
 import '../../Models/merchant_order.dart';
@@ -14,10 +14,13 @@ class MerchantReceiptRenderer {
   MerchantReceiptRenderer({
     ReceiptTemplateConfig? template,
     ReceiptTemplateLoader? loader,
+    AssetBundle? assetBundle,
   }) : _template = template,
-       _loader = loader ?? ReceiptTemplateLoader();
+       _loader = loader ?? ReceiptTemplateLoader(bundle: assetBundle),
+       _assetBundle = assetBundle ?? rootBundle;
 
   final ReceiptTemplateLoader _loader;
+  final AssetBundle _assetBundle;
   ReceiptTemplateConfig? _template;
   Future<void>? _initializing;
   String _templateAssetPath = '';
@@ -64,7 +67,7 @@ class MerchantReceiptRenderer {
     final document = _ReceiptLayoutEngine(template).build(
       paperSize: printer.paperSize,
       context: {
-        'app': {'name': 'SpeedFeast'},
+        'app': {'name': 'Powered by Speedfeast'},
         'printer': {
           'name': printer.displayName,
           'connectionType': printer.connectionLabel,
@@ -93,16 +96,84 @@ class MerchantReceiptRenderer {
     _ReceiptDocument document, {
     required bool includeBitmap,
   }) async {
-    return MerchantReceiptRenderResult(
-      escPosBytes: _documentToEscPosBytes(document),
-      text: _documentToPlainText(document),
-      html: _documentToHtml(document),
-      bitmapPng: includeBitmap ? await _documentToPng(document) : null,
-      paperWidthDots: document.paper.widthDots,
-      feedLines: document.feedLines,
-      cutMode: document.cutMode,
-      templateId: document.templateId,
+    final prepared = await _loadDocumentImages(document);
+    try {
+      return MerchantReceiptRenderResult(
+        escPosBytes: _documentToEscPosBytes(prepared),
+        text: _documentToPlainText(prepared),
+        html: _documentToHtml(prepared),
+        bitmapPng: includeBitmap ? await _documentToPng(prepared) : null,
+        paperWidthDots: prepared.paper.widthDots,
+        feedLines: prepared.feedLines,
+        cutMode: prepared.cutMode,
+        templateId: prepared.templateId,
+      );
+    } finally {
+      prepared.disposeImages();
+    }
+  }
+
+  Future<_ReceiptDocument> _loadDocumentImages(
+    _ReceiptDocument document,
+  ) async {
+    final lines = <_ReceiptDocumentLine>[];
+    for (final line in document.lines) {
+      final image = line.image;
+      if (image == null) {
+        lines.add(line);
+        continue;
+      }
+      lines.add(
+        line.withImage(await _loadReceiptImage(image, paper: document.paper)),
+      );
+    }
+    return document.withLines(List.unmodifiable(lines));
+  }
+
+  Future<_ReceiptImageLine> _loadReceiptImage(
+    _ReceiptImageLine image, {
+    required ReceiptPaperProfile paper,
+  }) async {
+    final contentWidth = paper.widthDots - paper.horizontalMarginDots * 2;
+    final targetWidth = math.min(image.widthDots, contentWidth);
+    final data = await _assetBundle.load(image.asset);
+    final sourceBytes = Uint8List.fromList(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
     );
+    final codec = await ui.instantiateImageCodec(
+      sourceBytes,
+      targetWidth: targetWidth,
+    );
+    try {
+      final frame = await codec.getNextFrame();
+      final decodedImage = frame.image;
+      final rgbaData = await decodedImage.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      );
+      if (rgbaData == null) {
+        decodedImage.dispose();
+        throw ReceiptTemplateException(
+          'Unable to decode receipt image ${image.asset}.',
+        );
+      }
+      final rgba = rgbaData.buffer.asUint8List(
+        rgbaData.offsetInBytes,
+        rgbaData.lengthInBytes,
+      );
+      return image.loaded(
+        decodedImage: decodedImage,
+        sourceBytes: sourceBytes,
+        escPosRaster: _imageToMonochromeRaster(
+          paper: paper,
+          image: image,
+          imageWidth: decodedImage.width,
+          imageHeight: decodedImage.height,
+          rgba: rgba,
+        ),
+      );
+    } finally {
+      codec.dispose();
+    }
   }
 }
 
@@ -142,6 +213,22 @@ class _ReceiptDocument {
   final List<_ReceiptDocumentLine> lines;
   final int feedLines;
   final String cutMode;
+
+  _ReceiptDocument withLines(List<_ReceiptDocumentLine> value) {
+    return _ReceiptDocument(
+      templateId: templateId,
+      paper: paper,
+      lines: value,
+      feedLines: feedLines,
+      cutMode: cutMode,
+    );
+  }
+
+  void disposeImages() {
+    for (final line in lines) {
+      line.image?.decodedImage?.dispose();
+    }
+  }
 }
 
 class _ReceiptDocumentLine {
@@ -151,6 +238,7 @@ class _ReceiptDocumentLine {
     this.moneyLabel,
     this.moneySign,
     this.moneyNumber,
+    this.image,
     this.separator,
   });
 
@@ -159,7 +247,63 @@ class _ReceiptDocumentLine {
   final String? moneyLabel;
   final String? moneySign;
   final String? moneyNumber;
+  final _ReceiptImageLine? image;
   final _ReceiptSeparatorLine? separator;
+
+  _ReceiptDocumentLine withImage(_ReceiptImageLine value) {
+    return _ReceiptDocumentLine(
+      text: text,
+      style: style,
+      moneyLabel: moneyLabel,
+      moneySign: moneySign,
+      moneyNumber: moneyNumber,
+      image: value,
+      separator: separator,
+    );
+  }
+}
+
+class _ReceiptImageLine {
+  const _ReceiptImageLine({
+    required this.asset,
+    required this.widthDots,
+    required this.position,
+    required this.spaceBeforeDots,
+    required this.spaceAfterDots,
+    this.decodedImage,
+    this.sourceBytes,
+    this.escPosRaster,
+  });
+
+  final String asset;
+  final int widthDots;
+  final ReceiptAlignment position;
+  final int spaceBeforeDots;
+  final int spaceAfterDots;
+  final ui.Image? decodedImage;
+  final Uint8List? sourceBytes;
+  final Uint8List? escPosRaster;
+
+  int get renderedWidth => decodedImage?.width ?? 0;
+  int get renderedHeight => decodedImage?.height ?? 0;
+  int get totalHeight => spaceBeforeDots + renderedHeight + spaceAfterDots;
+
+  _ReceiptImageLine loaded({
+    required ui.Image decodedImage,
+    required Uint8List sourceBytes,
+    required Uint8List escPosRaster,
+  }) {
+    return _ReceiptImageLine(
+      asset: asset,
+      widthDots: widthDots,
+      position: position,
+      spaceBeforeDots: spaceBeforeDots,
+      spaceAfterDots: spaceAfterDots,
+      decodedImage: decodedImage,
+      sourceBytes: sourceBytes,
+      escPosRaster: escPosRaster,
+    );
+  }
 }
 
 class _ReceiptSeparatorLine {
@@ -231,6 +375,20 @@ class _ReceiptLayoutEngine {
       if (!_conditionMatches(element.condition, scope)) continue;
       final style = template.styles[element.style]!;
       switch (element.type) {
+        case ReceiptElementType.image:
+          state.lines.add(
+            _ReceiptDocumentLine(
+              text: '',
+              style: style,
+              image: _ReceiptImageLine(
+                asset: element.imageAsset,
+                widthDots: element.imageWidthDots,
+                position: element.imagePosition,
+                spaceBeforeDots: element.imageSpaceBeforeDots,
+                spaceAfterDots: element.imageSpaceAfterDots,
+              ),
+            ),
+          );
         case ReceiptElementType.text:
           var value = element.template.isNotEmpty
               ? _expandTemplate(element.template, scope)
@@ -468,6 +626,11 @@ List<String> _wrapWords(String value, int width) {
 List<int> _documentToEscPosBytes(_ReceiptDocument document) {
   final bytes = <int>[0x1B, 0x40, 0x1B, 0x74, 16];
   for (final line in document.lines) {
+    final image = line.image;
+    if (image != null) {
+      bytes.addAll(_imageToEscPosBytes(document.paper, image));
+      continue;
+    }
     final separator = line.separator;
     if (separator != null) {
       bytes.addAll(_separatorToEscPosBytes(document.paper, separator));
@@ -488,6 +651,7 @@ List<int> _documentToEscPosBytes(_ReceiptDocument document) {
 
 String _documentToPlainText(_ReceiptDocument document) {
   final lines = document.lines.map((line) {
+    if (line.image != null) return '';
     if (line.separator != null) return '';
     final width = _effectiveColumns(document.paper.columns, line.style);
     return switch (line.style.align) {
@@ -512,6 +676,23 @@ ${document.lines.map(_documentLineToHtml).join('\n')}
 }
 
 String _documentLineToHtml(_ReceiptDocumentLine line) {
+  final image = line.image;
+  if (image != null) {
+    final sourceBytes = image.sourceBytes;
+    if (sourceBytes == null) return '';
+    final justifyContent = switch (image.position) {
+      ReceiptAlignment.left => 'flex-start',
+      ReceiptAlignment.center => 'center',
+      ReceiptAlignment.right => 'flex-end',
+    };
+    final encoded = base64Encode(sourceBytes);
+    return '<div style="display:flex; justify-content:$justifyContent; '
+        'padding-top:${image.spaceBeforeDots}px; '
+        'padding-bottom:${image.spaceAfterDots}px;">'
+        '<img alt="Receipt logo" src="data:image/png;base64,$encoded" '
+        'width="${image.renderedWidth}" height="${image.renderedHeight}" />'
+        '</div>';
+  }
   final separator = line.separator;
   if (separator != null) {
     final justifyContent = switch (separator.position) {
@@ -558,6 +739,15 @@ Future<Uint8List> _documentToPng(_ReceiptDocument document) async {
   var contentHeight = 0.0;
 
   for (final line in document.lines) {
+    final receiptImage = line.image;
+    if (receiptImage != null) {
+      final height = receiptImage.totalHeight.toDouble();
+      paintLines.add(
+        _BitmapPaintLine(height: height, receiptImage: receiptImage),
+      );
+      contentHeight += height;
+      continue;
+    }
     final separator = line.separator;
     if (separator != null) {
       final height =
@@ -645,6 +835,22 @@ Future<Uint8List> _documentToPng(_ReceiptDocument document) async {
   );
   var y = verticalMargin;
   for (final line in paintLines) {
+    final receiptImage = line.receiptImage;
+    if (receiptImage != null) {
+      final decodedImage = receiptImage.decodedImage!;
+      final left = _imageLeftDots(
+        document.paper,
+        imageWidth: decodedImage.width,
+        position: receiptImage.position,
+      );
+      canvas.drawImage(
+        decodedImage,
+        ui.Offset(left.toDouble(), y + receiptImage.spaceBeforeDots),
+        ui.Paint(),
+      );
+      y += line.height;
+      continue;
+    }
     final separator = line.separator;
     if (separator != null) {
       final geometry = _separatorGeometry(document.paper, separator);
@@ -691,13 +897,94 @@ class _BitmapPaintLine {
     required this.height,
     this.painter,
     this.trailingPainter,
+    this.receiptImage,
     this.separator,
   });
 
   final TextPainter? painter;
   final double height;
   final TextPainter? trailingPainter;
+  final _ReceiptImageLine? receiptImage;
   final _ReceiptSeparatorLine? separator;
+}
+
+Uint8List _imageToMonochromeRaster({
+  required ReceiptPaperProfile paper,
+  required _ReceiptImageLine image,
+  required int imageWidth,
+  required int imageHeight,
+  required Uint8List rgba,
+}) {
+  final widthBytes = (paper.widthDots + 7) ~/ 8;
+  final totalHeight =
+      image.spaceBeforeDots + imageHeight + image.spaceAfterDots;
+  final raster = Uint8List(widthBytes * totalHeight);
+  final left = _imageLeftDots(
+    paper,
+    imageWidth: imageWidth,
+    position: image.position,
+  );
+
+  for (var y = 0; y < imageHeight; y++) {
+    final targetRow = (image.spaceBeforeDots + y) * widthBytes;
+    for (var x = 0; x < imageWidth; x++) {
+      final sourceOffset = (y * imageWidth + x) * 4;
+      final alpha = rgba[sourceOffset + 3];
+      final inverseAlpha = 255 - alpha;
+      final red = (rgba[sourceOffset] * alpha + 255 * inverseAlpha) ~/ 255;
+      final green =
+          (rgba[sourceOffset + 1] * alpha + 255 * inverseAlpha) ~/ 255;
+      final blue = (rgba[sourceOffset + 2] * alpha + 255 * inverseAlpha) ~/ 255;
+      final luminance = (red * 299 + green * 587 + blue * 114) ~/ 1000;
+      if (luminance >= 210) continue;
+      final targetX = left + x;
+      raster[targetRow + (targetX >> 3)] |= 0x80 >> (targetX & 7);
+    }
+  }
+  return raster;
+}
+
+List<int> _imageToEscPosBytes(
+  ReceiptPaperProfile paper,
+  _ReceiptImageLine image,
+) {
+  final raster = image.escPosRaster;
+  if (raster == null || image.renderedHeight <= 0) {
+    throw ReceiptTemplateException(
+      'Receipt image ${image.asset} has not been loaded.',
+    );
+  }
+  final widthBytes = (paper.widthDots + 7) ~/ 8;
+  final heightDots = image.totalHeight;
+  return [
+    0x1B,
+    0x61,
+    0x00,
+    0x1D,
+    0x76,
+    0x30,
+    0x00,
+    widthBytes & 0xFF,
+    (widthBytes >> 8) & 0xFF,
+    heightDots & 0xFF,
+    (heightDots >> 8) & 0xFF,
+    ...raster,
+  ];
+}
+
+int _imageLeftDots(
+  ReceiptPaperProfile paper, {
+  required int imageWidth,
+  required ReceiptAlignment position,
+}) {
+  final contentWidth = paper.widthDots - paper.horizontalMarginDots * 2;
+  final remaining = math.max(0, contentWidth - imageWidth);
+  final offset = switch (position) {
+    ReceiptAlignment.left => 0,
+    ReceiptAlignment.center => remaining ~/ 2,
+    ReceiptAlignment.right => remaining,
+  };
+  return paper.horizontalMarginDots + offset;
 }
 
 class _SeparatorGeometry {
@@ -770,7 +1057,7 @@ Map<String, dynamic> _orderContext(
 ) {
   final dueAt = _receiptDueAtLabel(order);
   return {
-    'app': {'name': 'SpeedFeast'},
+    'app': {'name': 'Powered by Speedfeast'},
     'store': {
       'name': _fallback(storeProfile?.name, fallback: 'Restaurant'),
       'phone': storeProfile?.phone ?? '',
@@ -845,8 +1132,25 @@ String _receiptCustomerLine(MerchantOrder order) {
     return table.isEmpty ? '' : 'T $table';
   }
   final name = order.customerName.trim();
-  if (name.isNotEmpty) return name;
+  if (name.isNotEmpty) return _maskCustomerLastName(name);
   return order.customerPhone.trim();
+}
+
+String _maskCustomerLastName(String value) {
+  final normalized = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+  final nameParts = normalized.split(' ');
+  if (nameParts.length < 2) return normalized;
+
+  final lastName = nameParts.removeLast();
+  final lastNameWithoutDot = lastName.endsWith('.')
+      ? lastName.substring(0, lastName.length - 1)
+      : lastName;
+  if (lastNameWithoutDot.isEmpty) return normalized;
+
+  final initial = String.fromCharCode(
+    lastNameWithoutDot.runes.first,
+  ).toUpperCase();
+  return '${nameParts.join(' ')} $initial.';
 }
 
 String _receiptPaymentLabel(MerchantOrder order) {

@@ -2,6 +2,7 @@ package com.techlong.speedfeast.merchant
 
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -76,8 +77,16 @@ class StarPrinterChannel(
                             imageBytes.size
                         ) ?: throw IllegalArgumentException("Receipt image is invalid.")
                         try {
+                            Log.d(
+                                TAG,
+                                "printImage bitmap=${bitmap.width}x${bitmap.height} " +
+                                    "bytes=${imageBytes.size} paperWidthDots=$paperWidthDots"
+                            )
+                            val imageParameter = ImageParameter(bitmap, paperWidthDots)
+                                .setEffectDiffusion(false)
+                                .setThreshold(THERMAL_IMAGE_THRESHOLD)
                             val printerBuilder = PrinterBuilder()
-                                .actionPrintImage(ImageParameter(bitmap, paperWidthDots))
+                                .actionPrintImage(imageParameter)
                             if (feedLines > 0) {
                                 printerBuilder.actionFeedLine(feedLines)
                             }
@@ -134,6 +143,8 @@ class StarPrinterChannel(
     }
 
     private companion object {
+        const val TAG = "StarPrinterChannel"
         const val CHANNEL_NAME = "speedfeast_merchant/star_printer"
+        const val THERMAL_IMAGE_THRESHOLD = 210
     }
 }

@@ -70,6 +70,7 @@ flutter:
   assets:
     - assets/printer_templates/order_receipt_v1.json
     - assets/printer_templates/order_receipt_fallback_v1.json
+    - assets/printer_templates/print_logo.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

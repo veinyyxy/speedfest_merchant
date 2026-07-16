@@ -340,6 +340,11 @@ class ReceiptTemplateElement {
     required this.template,
     required this.fallback,
     required this.prefix,
+    required this.imageAsset,
+    required this.imageWidthDots,
+    required this.imagePosition,
+    required this.imageSpaceBeforeDots,
+    required this.imageSpaceAfterDots,
     required this.separatorPosition,
     required this.separatorWidthPercent,
     required this.separatorThicknessDots,
@@ -361,6 +366,11 @@ class ReceiptTemplateElement {
   final String template;
   final String fallback;
   final String prefix;
+  final String imageAsset;
+  final int imageWidthDots;
+  final ReceiptAlignment imagePosition;
+  final int imageSpaceBeforeDots;
+  final int imageSpaceAfterDots;
   final ReceiptAlignment separatorPosition;
   final double separatorWidthPercent;
   final int separatorThicknessDots;
@@ -376,7 +386,7 @@ class ReceiptTemplateElement {
   final String mode;
 }
 
-enum ReceiptElementType { text, separator, moneyRow, repeat, feed, cut }
+enum ReceiptElementType { image, text, separator, moneyRow, repeat, feed, cut }
 
 class ReceiptCondition {
   const ReceiptCondition({
@@ -447,6 +457,7 @@ List<ReceiptTemplateElement> _parseElements(
     final json = _valueAsMap(raw[index], itemPath);
     final typeName = _requiredString(json, 'type');
     final type = switch (typeName) {
+      'image' => ReceiptElementType.image,
       'text' => ReceiptElementType.text,
       'separator' => ReceiptElementType.separator,
       'moneyRow' => ReceiptElementType.moneyRow,
@@ -493,6 +504,41 @@ List<ReceiptTemplateElement> _parseElements(
     if (type == ReceiptElementType.moneyRow) {
       _requiredString(json, 'label');
       _requiredString(json, 'amountField');
+    }
+
+    var imageAsset = '';
+    var imageWidthDots = 160;
+    var imagePosition = ReceiptAlignment.center;
+    var imageSpaceBeforeDots = 0;
+    var imageSpaceAfterDots = 6;
+    if (type == ReceiptElementType.image) {
+      imageAsset = _requiredString(json, 'asset');
+      imageWidthDots = _readInt(json, 'widthDots', fallback: 160);
+      imagePosition = ReceiptAlignment.fromName(
+        _readString(json['position'], fallback: 'center'),
+      );
+      imageSpaceBeforeDots = _readInt(json, 'spaceBeforeDots');
+      imageSpaceAfterDots = _readInt(json, 'spaceAfterDots', fallback: 6);
+      if (!imageAsset.startsWith('assets/') ||
+          imageAsset.contains('..') ||
+          !imageAsset.toLowerCase().endsWith('.png')) {
+        throw ReceiptTemplateException(
+          '$itemPath.asset must be a bundled PNG under assets/.',
+        );
+      }
+      if (imageWidthDots < 16 || imageWidthDots > 832) {
+        throw ReceiptTemplateException(
+          '$itemPath.widthDots must be between 16 and 832.',
+        );
+      }
+      if (imageSpaceBeforeDots < 0 ||
+          imageSpaceBeforeDots > 200 ||
+          imageSpaceAfterDots < 0 ||
+          imageSpaceAfterDots > 200) {
+        throw ReceiptTemplateException(
+          '$itemPath image spacing must be between 0 and 200 dots.',
+        );
+      }
     }
 
     var separatorPosition = ReceiptAlignment.center;
@@ -549,6 +595,11 @@ List<ReceiptTemplateElement> _parseElements(
         template: _readString(json['template']),
         fallback: _readString(json['fallback']),
         prefix: _readLiteral(json['prefix']),
+        imageAsset: imageAsset,
+        imageWidthDots: imageWidthDots,
+        imagePosition: imagePosition,
+        imageSpaceBeforeDots: imageSpaceBeforeDots,
+        imageSpaceAfterDots: imageSpaceAfterDots,
         separatorPosition: separatorPosition,
         separatorWidthPercent: separatorWidthPercent,
         separatorThicknessDots: separatorThicknessDots,
