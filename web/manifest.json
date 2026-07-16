@@ -1,6 +1,6 @@
 {
-    "name": "speedfest_merchant",
-    "short_name": "speedfest_merchant",
+    "name": "SpeedFeast Merchant",
+    "short_name": "SpeedFeast Merchant",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

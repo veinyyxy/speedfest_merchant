@@ -1,6 +1,9 @@
-# speedfest_merchant
+# speedfeast_merchant
 
-Speedfest for merchant UI
+Speedfeast for merchant UI
+
+## Credits
+- ChatGPT (AI assistant, OpenAI)
 
 ## Getting Started
 
