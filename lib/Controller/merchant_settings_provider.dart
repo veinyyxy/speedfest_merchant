@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../Common/merchant_service_config.dart';
 import '../Models/merchant_buyer_config.dart';
+import '../Models/merchant_order_automation.dart';
 import 'signed_api_client.dart';
 
 class MerchantSettingsProvider with ChangeNotifier {
@@ -10,12 +11,21 @@ class MerchantSettingsProvider with ChangeNotifier {
   bool _isUploadingLogo = false;
   String? _errorMessage;
   MerchantBuyerConfig? _buyerConfig;
+  bool _isLoadingOrderAutomation = false;
+  bool _isSavingOrderAutomation = false;
+  String? _orderAutomationErrorMessage;
+  MerchantOrderAutomationSettings? _orderAutomationSettings;
 
   bool get isLoading => _isLoading;
   bool get isSaving => _isSaving;
   bool get isUploadingLogo => _isUploadingLogo;
   String? get errorMessage => _errorMessage;
   MerchantBuyerConfig? get buyerConfig => _buyerConfig;
+  bool get isLoadingOrderAutomation => _isLoadingOrderAutomation;
+  bool get isSavingOrderAutomation => _isSavingOrderAutomation;
+  String? get orderAutomationErrorMessage => _orderAutomationErrorMessage;
+  MerchantOrderAutomationSettings? get orderAutomationSettings =>
+      _orderAutomationSettings;
 
   Future<void> fetchBuyerConfig({
     required SignedApiClient apiClient,
@@ -72,6 +82,67 @@ class MerchantSettingsProvider with ChangeNotifier {
       return false;
     } finally {
       _isSaving = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> fetchOrderAutomationSettings({
+    required SignedApiClient apiClient,
+    required String token,
+  }) async {
+    _isLoadingOrderAutomation = true;
+    _orderAutomationErrorMessage = null;
+    notifyListeners();
+
+    try {
+      final rawResponse = await apiClient.get(
+        MerchantServiceConfig.merchantOrderAutomationSettingsPath,
+        token: token,
+      );
+      final response = Map<String, dynamic>.from(rawResponse as Map);
+      _orderAutomationSettings = MerchantOrderAutomationSettings.fromJson(
+        Map<String, dynamic>.from(response['settings'] as Map),
+      );
+    } on AppException catch (e) {
+      _orderAutomationErrorMessage = e.message;
+    } catch (e) {
+      _orderAutomationErrorMessage =
+          'Unable to load order automation settings: $e';
+    } finally {
+      _isLoadingOrderAutomation = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> saveOrderAutomationSettings({
+    required SignedApiClient apiClient,
+    required String token,
+    required MerchantOrderAutomationSettings settings,
+  }) async {
+    _isSavingOrderAutomation = true;
+    _orderAutomationErrorMessage = null;
+    notifyListeners();
+
+    try {
+      final rawResponse = await apiClient.post(
+        MerchantServiceConfig.merchantOrderAutomationSettingsPath,
+        {'settings': settings.toJson()},
+        token: token,
+      );
+      final response = Map<String, dynamic>.from(rawResponse as Map);
+      _orderAutomationSettings = MerchantOrderAutomationSettings.fromJson(
+        Map<String, dynamic>.from(response['settings'] as Map),
+      );
+      return true;
+    } on AppException catch (e) {
+      _orderAutomationErrorMessage = e.message;
+      return false;
+    } catch (e) {
+      _orderAutomationErrorMessage =
+          'Unable to save order automation settings: $e';
+      return false;
+    } finally {
+      _isSavingOrderAutomation = false;
       notifyListeners();
     }
   }

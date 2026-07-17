@@ -60,6 +60,12 @@ class MerchantServiceConfig {
   static const merchantRewardUpdatePath = '/api/merchant/rewards/update';
   static const merchantRewardStatusPath = '/api/merchant/rewards/status';
   static const merchantBuyerConfigPath = '/api/merchant/settings/buyer-config';
+  static const merchantOrderAutomationSettingsPath =
+      '/api/merchant/settings/order-automation';
+  static const merchantPrintJobClaimPath = '/api/merchant/print-jobs/claim';
+
+  static String merchantPrintJobResultPath(String printJobId) =>
+      '/api/merchant/print-jobs/$printJobId/result';
 
   static String merchantNotificationReadPath(String notificationId) =>
       '/api/merchant/notifications/$notificationId/read';

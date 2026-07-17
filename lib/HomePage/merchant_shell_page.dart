@@ -7,9 +7,13 @@ import '../Common/merchant_local_notification_service.dart';
 import '../Common/merchant_local_notification_payload.dart';
 import '../Common/merchant_navigation_intent.dart';
 import '../Common/merchant_notification_alert_registry.dart';
+import '../Controller/merchant_auto_print_service.dart';
 import '../Controller/merchant_notification_service.dart';
 import '../Controller/merchant_notifications_provider.dart';
+import '../Controller/merchant_orders_provider.dart';
+import '../Controller/merchant_printers_provider.dart';
 import '../Controller/merchant_session_provider.dart';
+import '../Controller/merchant_settings_provider.dart';
 import '../Models/merchant_notification.dart';
 import '../OrderPage/merchant_orders_page.dart';
 import '../ProductPage/merchant_products_page.dart';
@@ -46,6 +50,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
   Timer? _notificationPollTimer;
   bool _notificationPollInFlight = false;
   bool _notificationPollSeeded = false;
+  bool _automaticPrintInFlight = false;
 
   static const _pages = [
     MerchantOrdersPage(),
@@ -121,10 +126,11 @@ class _MerchantShellPageState extends State<MerchantShellPage>
     if (!mounted) return;
     _notificationPollTimer?.cancel();
     _pollNotificationsForOrderEvents();
-    _notificationPollTimer = Timer.periodic(
-      _notificationPollInterval,
-      (_) => _pollNotificationsForOrderEvents(),
-    );
+    _pollAutomaticPrintJobs();
+    _notificationPollTimer = Timer.periodic(_notificationPollInterval, (_) {
+      _pollNotificationsForOrderEvents();
+      _pollAutomaticPrintJobs();
+    });
   }
 
   void _stopNotificationPolling() {
@@ -184,6 +190,98 @@ class _MerchantShellPageState extends State<MerchantShellPage>
       debugPrint('Unable to poll merchant notifications: $err');
     } finally {
       _notificationPollInFlight = false;
+    }
+  }
+
+  Future<void> _pollAutomaticPrintJobs() async {
+    if (_automaticPrintInFlight || !mounted) return;
+
+    final printersProvider = context.read<MerchantPrintersProvider>();
+    final ordersProvider = context.read<MerchantOrdersProvider>();
+    final settingsProvider = context.read<MerchantSettingsProvider>();
+    final printer = printersProvider.defaultPrinter;
+    if (printer == null ||
+        printersProvider.isLoading ||
+        printersProvider.isPrinting) {
+      return;
+    }
+
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null || token.isEmpty) return;
+
+    _automaticPrintInFlight = true;
+    try {
+      final autoPrintService = MerchantAutoPrintService.instance;
+      final job = await autoPrintService.claimNext(
+        apiClient: session.apiClient,
+        token: token,
+      );
+      if (job == null) return;
+
+      if (await autoPrintService.wasPrinted(job.id)) {
+        await autoPrintService.reportResult(
+          apiClient: session.apiClient,
+          token: token,
+          job: job,
+          success: true,
+        );
+        return;
+      }
+
+      final order = await ordersProvider.fetchOrderDetail(
+        apiClient: session.apiClient,
+        token: token,
+        orderId: job.orderId,
+      );
+      if (order == null) {
+        await autoPrintService.reportResult(
+          apiClient: session.apiClient,
+          token: token,
+          job: job,
+          success: false,
+          error: ordersProvider.errorMessage ?? 'Unable to load order detail.',
+        );
+        return;
+      }
+
+      if (settingsProvider.buyerConfig == null && !settingsProvider.isLoading) {
+        await settingsProvider.fetchBuyerConfig(
+          apiClient: session.apiClient,
+          token: token,
+        );
+      }
+
+      final printed = await printersProvider.printOrder(
+        order: order,
+        printer: printer,
+        storeProfile: settingsProvider.buyerConfig?.storeProfile,
+      );
+      if (!printed) {
+        await autoPrintService.reportResult(
+          apiClient: session.apiClient,
+          token: token,
+          job: job,
+          success: false,
+          error: printersProvider.errorMessage ?? 'Printer rejected the job.',
+        );
+        return;
+      }
+
+      await autoPrintService.markPrinted(job.id);
+      await autoPrintService.reportResult(
+        apiClient: session.apiClient,
+        token: token,
+        job: job,
+        success: true,
+      );
+      debugPrint(
+        '[AutoPrint] Printed ${job.orderId} on ${printer.displayName}.',
+      );
+    } catch (err) {
+      debugPrint('[AutoPrint] Unable to process print job: $err');
+    } finally {
+      _automaticPrintInFlight = false;
     }
   }
 
@@ -387,6 +485,8 @@ class _MerchantShellPageState extends State<MerchantShellPage>
       }
     }
     if (!mounted) return;
+
+    unawaited(_pollAutomaticPrintJobs());
 
     final session = context.read<MerchantSessionProvider>();
     final token = session.token;

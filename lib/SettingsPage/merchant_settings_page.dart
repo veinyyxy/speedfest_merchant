@@ -3,9 +3,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../Common/merchant_service_config.dart';
+import '../Controller/merchant_printers_provider.dart';
 import '../Controller/merchant_session_provider.dart';
 import '../Controller/merchant_settings_provider.dart';
 import '../Models/merchant_buyer_config.dart';
+import '../Models/merchant_order_automation.dart';
 import '../PrinterPage/merchant_printers_page.dart';
 
 class MerchantSettingsPage extends StatefulWidget {
@@ -35,6 +37,7 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
   final _pickupMinController = TextEditingController();
   final _pickupMaxController = TextEditingController();
   final _timezoneController = TextEditingController(text: 'America/Winnipeg');
+  final _automationMinutesController = TextEditingController(text: '30');
   final _weeklyIntervals = <String, List<_IntervalForm>>{};
   final _specialDateForms = <_SpecialDateForm>[];
   final _holidayDateForms = <_HolidayDateForm>[];
@@ -50,7 +53,9 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
   bool _takeoutCashEnabled = true;
   bool _takeoutPosCardEnabled = true;
   String _takeoutCollectionTiming = 'at_pickup';
+  bool _autoAcceptEnabled = false;
   bool _didLoad = false;
+  bool _didLoadOrderAutomation = false;
 
   @override
   void initState() {
@@ -80,6 +85,7 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
     _pickupMinController.dispose();
     _pickupMaxController.dispose();
     _timezoneController.dispose();
+    _automationMinutesController.dispose();
     _disposeWeeklyIntervals();
     _disposeSpecialDates();
     _disposeHolidayDates();
@@ -92,13 +98,32 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
     if (token == null) return;
     final provider = context.read<MerchantSettingsProvider>();
 
-    await provider.fetchBuyerConfig(apiClient: session.apiClient, token: token);
+    await Future.wait([
+      provider.fetchBuyerConfig(apiClient: session.apiClient, token: token),
+      provider.fetchOrderAutomationSettings(
+        apiClient: session.apiClient,
+        token: token,
+      ),
+    ]);
     if (!mounted) return;
 
     final config = provider.buyerConfig;
     if (config != null) {
       _applyConfig(config);
     }
+    final automationSettings = provider.orderAutomationSettings;
+    if (automationSettings != null) {
+      _applyOrderAutomationSettings(automationSettings);
+    }
+  }
+
+  void _applyOrderAutomationSettings(MerchantOrderAutomationSettings settings) {
+    setState(() {
+      _didLoadOrderAutomation = true;
+      _autoAcceptEnabled = settings.autoAcceptEnabled;
+      _automationMinutesController.text = settings.preparationMinutes
+          .toString();
+    });
   }
 
   void _applyConfig(MerchantBuyerConfig config) {
@@ -274,6 +299,57 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
     _showMessage(provider.errorMessage ?? 'Settings could not be saved.');
   }
 
+  Future<void> _saveOrderAutomationSettings() async {
+    final preparationMinutes = int.tryParse(
+      _automationMinutesController.text.trim(),
+    );
+    if (preparationMinutes == null ||
+        preparationMinutes < 1 ||
+        preparationMinutes > 1440) {
+      _showMessage('Preparation time must be a whole number from 1 to 1440.');
+      return;
+    }
+
+    final defaultPrinter = context
+        .read<MerchantPrintersProvider>()
+        .defaultPrinter;
+    if (_autoAcceptEnabled && defaultPrinter == null) {
+      _showMessage('Add a default printer before enabling automatic orders.');
+      return;
+    }
+
+    final session = context.read<MerchantSessionProvider>();
+    final token = session.token;
+    if (token == null) return;
+    final provider = context.read<MerchantSettingsProvider>();
+    final ok = await provider.saveOrderAutomationSettings(
+      apiClient: session.apiClient,
+      token: token,
+      settings: MerchantOrderAutomationSettings(
+        autoAcceptEnabled: _autoAcceptEnabled,
+        preparationMinutes: preparationMinutes,
+        autoPrintEnabled: true,
+        autoReadyEnabled: false,
+      ),
+    );
+    if (!mounted) return;
+
+    final savedSettings = provider.orderAutomationSettings;
+    if (ok && savedSettings != null) {
+      _applyOrderAutomationSettings(savedSettings);
+      _showMessage(
+        savedSettings.autoAcceptEnabled
+            ? 'Automatic order start is enabled.'
+            : 'Automatic order start is disabled.',
+      );
+      return;
+    }
+    _showMessage(
+      provider.orderAutomationErrorMessage ??
+          'Order automation settings could not be saved.',
+    );
+  }
+
   Future<void> _pickAndUploadLogo() async {
     final source = await _showImageSourcePicker();
     if (!mounted || source == null) return;
@@ -284,6 +360,7 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const MerchantPrintersPage()),
     );
+    if (mounted) setState(() {});
   }
 
   Future<ImageSource?> _showImageSourcePicker() {
@@ -616,8 +693,14 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MerchantSettingsProvider>();
+    final printersProvider = context.watch<MerchantPrintersProvider>();
+    final defaultPrinter = printersProvider.defaultPrinter;
     final isBusy =
-        provider.isLoading || provider.isSaving || provider.isUploadingLogo;
+        provider.isLoading ||
+        provider.isSaving ||
+        provider.isUploadingLogo ||
+        provider.isLoadingOrderAutomation ||
+        provider.isSavingOrderAutomation;
 
     return Scaffold(
       appBar: AppBar(
@@ -660,6 +743,103 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
                     onPressed: _openPrinters,
                     icon: const Icon(Icons.print_outlined),
                     label: const Text('Manage printers'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _SettingsCard(
+                title: 'Order Automation',
+                children: [
+                  if (provider.isLoadingOrderAutomation &&
+                      !_didLoadOrderAutomation) ...[
+                    const LinearProgressIndicator(),
+                    const SizedBox(height: 12),
+                  ],
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Auto accept and start orders'),
+                    subtitle: const Text(
+                      'New paid orders are moved to Preparing and printed automatically.',
+                    ),
+                    value: _autoAcceptEnabled,
+                    onChanged: isBusy
+                        ? null
+                        : (value) => setState(() => _autoAcceptEnabled = value),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _automationMinutesController,
+                    enabled: !isBusy,
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Preparation time',
+                      suffixText: 'minutes',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final minutes in const [10, 15, 20, 30, 45, 60])
+                        ChoiceChip(
+                          label: Text('$minutes min'),
+                          selected:
+                              _automationMinutesController.text.trim() ==
+                              minutes.toString(),
+                          onSelected: isBusy
+                              ? null
+                              : (_) => setState(
+                                  () => _automationMinutesController.text =
+                                      minutes.toString(),
+                                ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.print_outlined, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          defaultPrinter == null
+                              ? 'No default printer configured on this device.'
+                              : 'Automatic printer: ${defaultPrinter.displayName}',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Pay at Store and Pay at Counter orders are also auto-started, but are excluded from automatic Ready.',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                  if (provider.orderAutomationErrorMessage != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      provider.orderAutomationErrorMessage!,
+                      style: TextStyle(color: Colors.red.shade700),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: isBusy ? null : _saveOrderAutomationSettings,
+                    icon: provider.isSavingOrderAutomation
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_outlined),
+                    label: Text(
+                      provider.isSavingOrderAutomation
+                          ? 'Saving'
+                          : 'Save order automation',
+                    ),
                   ),
                 ],
               ),
