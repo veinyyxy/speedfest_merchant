@@ -85,6 +85,19 @@
         "lineHeight": 1.45
       }
     },
+    "orderNote": {
+      "align": "left",
+      "bold": false,
+      "escPos": {
+        "smallFont": false,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 30,
+        "lineHeight": 1.15
+      }
+    },
     "strong": {
       "align": "left",
       "bold": true,
@@ -120,7 +133,7 @@
         "heightScale": 1
       },
       "bitmap": {
-        "fontSize": 40,
+        "fontSize": 30,
         "lineHeight": 1.1
       }
     },
@@ -209,6 +222,16 @@
       }
     },
     {
+      "type": "text",
+      "template": "Note: {{order.note}}",
+      "style": "orderNote",
+      "wrap": "output",
+      "when": {
+        "field": "order.note",
+        "operator": "notEmpty"
+      }
+    },
+    {
       "type": "separator",
       "widthPercent": 100,
       "position": "center",
@@ -261,7 +284,7 @@
       "children": [
         {
           "type": "moneyRow",
-          "label": "{{item.quantity}}x {{item.name}}",
+          "label": "{{item.quantity}}x{{item.name}}",
           "amountField": "item.price",
           "style": "item"
         },
@@ -292,9 +315,9 @@
               "children": [
                 {
                   "type": "moneyRow",
-                  "label": "{{option.quantity}}x {{option.name}}",
+                  "label": "{{option.quantity}}x{{option.name}}",
                   "amountField": "option.price",
-                  "prefix": "    ",
+                  "prefix": "  ",
                   "style": "itemNote"
                 }
               ]

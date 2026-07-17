@@ -9,7 +9,8 @@ Supported section types:
 
 - `image`: bundled PNG `asset`, `widthDots`, `position`, and optional
   `spaceBeforeDots` / `spaceAfterDots`
-- `text`: `field` or `template`, optional `fallback`, `prefix`, `style`, `when`
+- `text`: `field` or `template`, optional `fallback`, `prefix`, `style`, `when`,
+  and `wrap` (`columns` by default, or `output` for output-native wrapping)
 - `separator`: one-character `character`
 - `moneyRow`: `label` template and numeric `amountField`, optional `prefix`
 - `repeat`: `source`, `itemName`, and nested `children`
@@ -26,7 +27,8 @@ Available order fields:
 - `store.name`, `store.phone`, `store.address`
 - `customer.displayName`
 - `order.shortId`, `order.fulfillmentLabel`, `order.paymentLabel`,
-  `order.dueAtLabel`, `order.itemCountLabel`, `order.hasItems`, `order.items`
+  `order.dueAtLabel`, `order.note`, `order.itemCountLabel`, `order.hasItems`,
+  `order.items`
 - Each item: `item.quantity`, `item.name`, `item.price`, `item.isReward`,
   `item.instructions`, `item.optionGroups`
 - Each option group: `group.name`, `group.options`

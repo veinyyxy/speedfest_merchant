@@ -27,6 +27,7 @@ class MerchantOrder {
     required this.tableNumber,
     required this.pickupLocation,
     required this.deliveryNote,
+    required this.orderNote,
     required this.items,
     required this.review,
     required this.pricing,
@@ -59,6 +60,7 @@ class MerchantOrder {
   final String tableNumber;
   final String pickupLocation;
   final String deliveryNote;
+  final String orderNote;
   final List<MerchantOrderItem> items;
   final MerchantOrderReview? review;
   final MerchantOrderPricing pricing;
@@ -316,6 +318,14 @@ class MerchantOrder {
         'pickupLocation',
       ]),
       deliveryNote: _firstString(json, const ['delivery_note', 'deliveryNote']),
+      orderNote: _firstString(
+        json,
+        const ['order_note', 'orderNote'],
+        fallback: _firstString(fulfillmentDetail, const [
+          'order_note',
+          'orderNote',
+        ]),
+      ),
       items: items,
       review: reviewData.isEmpty
           ? null

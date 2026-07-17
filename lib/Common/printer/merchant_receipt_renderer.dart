@@ -400,6 +400,7 @@ class _ReceiptLayoutEngine {
             prefix: element.prefix,
             style: style,
             columns: paper.columns,
+            wrapMode: element.textWrapMode,
           );
         case ReceiptElementType.separator:
           state.lines.add(
@@ -529,11 +530,25 @@ void _appendText(
   required String prefix,
   required ReceiptStyleDefinition style,
   required int columns,
+  required ReceiptTextWrapMode wrapMode,
 }) {
   if (value.trim().isEmpty) return;
+  final paragraphs = value
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .split('\n');
+  if (wrapMode == ReceiptTextWrapMode.output) {
+    for (final paragraph in paragraphs) {
+      final normalized = paragraph.trim().replaceAll(RegExp(r'\s+'), ' ');
+      if (normalized.isEmpty) continue;
+      lines.add(_ReceiptDocumentLine(text: '$prefix$normalized', style: style));
+    }
+    return;
+  }
+
   final width = _effectiveColumns(columns, style);
   final continuationPrefix = List.filled(prefix.length, ' ').join();
-  for (final paragraph in value.replaceAll('\r\n', '\n').split('\n')) {
+  for (final paragraph in paragraphs) {
     final wrapped = _wrapWords(paragraph, math.max(4, width - prefix.length));
     for (var index = 0; index < wrapped.length; index++) {
       lines.add(
@@ -1075,6 +1090,7 @@ Map<String, dynamic> _orderContext(
       'fulfillmentLabel': _receiptFulfillmentLabel(order),
       'paymentLabel': _receiptPaymentLabel(order),
       'dueAtLabel': dueAt,
+      'note': order.orderNote,
       'itemCountLabel':
           '${order.itemCount} Item${order.itemCount == 1 ? '' : 's'}',
       'hasItems': order.items.isNotEmpty,

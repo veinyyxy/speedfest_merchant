@@ -25,6 +25,15 @@ void main() {
       expect(template.sections, isNotEmpty);
       expect(template.testSections, isNotEmpty);
       expect(template.paperProfiles.keys, containsAll(['mm58', 'mm80']));
+      expect(template.styles['orderNote']?.bitmapFontSize, 30);
+      final orderNoteIndex = template.sections.indexWhere(
+        (section) => section.template == 'Note: {{order.note}}',
+      );
+      expect(orderNoteIndex, greaterThanOrEqualTo(0));
+      expect(
+        template.sections[orderNoteIndex].textWrapMode,
+        ReceiptTextWrapMode.output,
+      );
       if (path.endsWith('order_receipt_v1.json')) {
         expect(template.sections.first.type, ReceiptElementType.image);
         expect(
@@ -40,11 +49,15 @@ void main() {
         );
         expect(customerIndex, greaterThanOrEqualTo(0));
         expect(
-          template.sections[customerIndex + 1].type,
+          template.sections[customerIndex + 1].template,
+          'Note: {{order.note}}',
+        );
+        expect(
+          template.sections[customerIndex + 2].type,
           ReceiptElementType.separator,
         );
         expect(
-          template.sections[customerIndex + 2].template,
+          template.sections[customerIndex + 3].template,
           'ID: #{{order.shortId}}',
         );
       }
@@ -52,6 +65,9 @@ void main() {
   });
 
   test('one local template renders ESC/POS, text and HTML', () async {
+    const orderNote =
+        'This is a testing text.This is a testing text.This is a testing '
+        'text.This is a testing text.';
     final renderer = MerchantReceiptRenderer();
     final order = MerchantOrder.fromJson({
       'order_id': '1234567890abcdef',
@@ -60,11 +76,13 @@ void main() {
       'payment_status': 'paid',
       'payment_channel': 'online',
       'customer': {'name': 'Alex'},
+      'order_note': orderNote,
       'items': [
         {
           'name': 'Burger',
           'quantity': 1,
           'subtotal': 12.5,
+          'special_instructions': 'No onions',
           'selected_options': [
             {
               'group_name': 'Extra adding',
@@ -91,25 +109,29 @@ void main() {
     );
 
     expect(receipt.text, contains('Powered by Speedfeast'));
-    expect(receipt.text, contains('1x Burger'));
+    expect(receipt.text, contains('Alex\nNote: $orderNote'));
+    expect(receipt.text, contains('1xBurger'));
+    expect(receipt.text, contains('Note: No onions'));
     expect(receipt.text, contains(r'$12.50'));
     expect(receipt.text, contains('-Extra adding:'));
-    expect(receipt.text, contains('1x Cheese'));
+    expect(receipt.text, contains('1xCheese'));
     expect(receipt.text, contains(r'$1.00'));
-    expect(receipt.text, contains('2x Avocado'));
+    expect(receipt.text, contains('2xAvocado'));
     expect(receipt.text, contains(r'$2.00'));
     expect(receipt.text, matches(RegExp(r'^-Extra adding:$', multiLine: true)));
     expect(
       receipt.text,
-      matches(RegExp(r'^ {4}1x Cheese +\$1\.00$', multiLine: true)),
+      matches(RegExp(r'^ {2}1xCheese +\$1\.00$', multiLine: true)),
     );
     expect(
       receipt.text,
-      matches(RegExp(r'^ {4}2x Avocado +\$2\.00$', multiLine: true)),
+      matches(RegExp(r'^ {2}2xAvocado +\$2\.00$', multiLine: true)),
     );
     expect(receipt.text, isNot(contains('Delivery fee')));
     expect(receipt.text, isNot(matches(RegExp(r'-{3,}'))));
     expect(receipt.html, isNot(contains('Default order receipt')));
+    expect(receipt.html, contains('Note: $orderNote'));
+    expect(receipt.html, contains('Note: No onions'));
     expect(receipt.html, contains('background:#000'));
     expect(receipt.html, contains('data:image/png;base64,'));
     expect(
@@ -117,6 +139,7 @@ void main() {
       lessThan(receipt.html.indexOf('Powered by Speedfeast')),
     );
     expect(receipt.escPosBytes.take(2), [0x1B, 0x40]);
+    expect(latin1.decode(receipt.escPosBytes), contains('Note: $orderNote'));
     expect(
       _containsByteSequence(receipt.escPosBytes, const [0x1D, 0x76, 0x30, 0]),
       isTrue,
@@ -135,12 +158,13 @@ void main() {
     );
     expect(
       narrowReceipt.text,
-      matches(RegExp(r'^ {4}1x Cheese +\$1\.00$', multiLine: true)),
+      matches(RegExp(r'^ {2}1xCheese +\$1\.00$', multiLine: true)),
     );
     expect(
       narrowReceipt.text,
-      matches(RegExp(r'^ {4}2x Avocado +\$2\.00$', multiLine: true)),
+      matches(RegExp(r'^ {2}2xAvocado +\$2\.00$', multiLine: true)),
     );
+    expect(narrowReceipt.text, contains('Alex\nNote: $orderNote'));
   });
 
   test('receipt masks the customer last name with its initial', () async {
@@ -249,6 +273,27 @@ void main() {
       expect(loaded.assetPath, 'fallback.json');
       expect(loaded.template.templateId, 'order_receipt_fallback_v1');
       expect(loaded.primaryError, isNotNull);
+
+      final receipt = await MerchantReceiptRenderer(template: loaded.template)
+          .renderOrder(
+            order: MerchantOrder.fromJson({
+              'order_id': 'fallback-order',
+              'customer': {'name': 'Alex'},
+              'order_note': 'Call on arrival',
+              'items': [
+                {
+                  'name': 'Burger',
+                  'quantity': 1,
+                  'subtotal': 12.5,
+                  'special_instructions': 'No onions',
+                },
+              ],
+              'pricing': {'total': 12.5},
+            }),
+            paperSize: MerchantPrinterPaperSize.mm80,
+          );
+      expect(receipt.text, contains('Alex\nNote: Call on arrival'));
+      expect(receipt.text, contains('Note: No onions'));
     },
   );
 }

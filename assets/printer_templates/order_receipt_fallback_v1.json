@@ -45,6 +45,19 @@
         "fontSize": 30,
         "lineHeight": 1.08
       }
+    },
+    "orderNote": {
+      "align": "left",
+      "bold": false,
+      "escPos": {
+        "smallFont": false,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 30,
+        "lineHeight": 1.15
+      }
     }
   },
   "sections": [
@@ -58,6 +71,25 @@
       "type": "text",
       "template": "Order #{{order.shortId}}",
       "style": "title"
+    },
+    {
+      "type": "text",
+      "field": "customer.displayName",
+      "style": "title",
+      "when": {
+        "field": "customer.displayName",
+        "operator": "notEmpty"
+      }
+    },
+    {
+      "type": "text",
+      "template": "Note: {{order.note}}",
+      "style": "orderNote",
+      "wrap": "output",
+      "when": {
+        "field": "order.note",
+        "operator": "notEmpty"
+      }
     },
     {
       "type": "separator",
@@ -75,9 +107,19 @@
       "children": [
         {
           "type": "moneyRow",
-          "label": "{{item.quantity}}x {{item.name}}",
+          "label": "{{item.quantity}}x{{item.name}}",
           "amountField": "item.price",
           "style": "normal"
+        },
+        {
+          "type": "text",
+          "template": "Note: {{item.instructions}}",
+          "prefix": "  - ",
+          "style": "normal",
+          "when": {
+            "field": "item.instructions",
+            "operator": "notEmpty"
+          }
         }
       ]
     },

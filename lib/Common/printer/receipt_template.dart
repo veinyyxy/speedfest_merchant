@@ -340,6 +340,7 @@ class ReceiptTemplateElement {
     required this.template,
     required this.fallback,
     required this.prefix,
+    required this.textWrapMode,
     required this.imageAsset,
     required this.imageWidthDots,
     required this.imagePosition,
@@ -366,6 +367,7 @@ class ReceiptTemplateElement {
   final String template;
   final String fallback;
   final String prefix;
+  final ReceiptTextWrapMode textWrapMode;
   final String imageAsset;
   final int imageWidthDots;
   final ReceiptAlignment imagePosition;
@@ -387,6 +389,19 @@ class ReceiptTemplateElement {
 }
 
 enum ReceiptElementType { image, text, separator, moneyRow, repeat, feed, cut }
+
+enum ReceiptTextWrapMode {
+  columns,
+  output;
+
+  factory ReceiptTextWrapMode.fromName(String name) {
+    return switch (name.trim().toLowerCase()) {
+      'columns' => ReceiptTextWrapMode.columns,
+      'output' => ReceiptTextWrapMode.output,
+      _ => throw ReceiptTemplateException('Unsupported text wrap mode: $name.'),
+    };
+  }
+}
 
 class ReceiptCondition {
   const ReceiptCondition({
@@ -501,6 +516,11 @@ List<ReceiptTemplateElement> _parseElements(
         '$itemPath requires either field or template.',
       );
     }
+    final textWrapMode = type == ReceiptElementType.text
+        ? ReceiptTextWrapMode.fromName(
+            _readString(json['wrap'], fallback: 'columns'),
+          )
+        : ReceiptTextWrapMode.columns;
     if (type == ReceiptElementType.moneyRow) {
       _requiredString(json, 'label');
       _requiredString(json, 'amountField');
@@ -595,6 +615,7 @@ List<ReceiptTemplateElement> _parseElements(
         template: _readString(json['template']),
         fallback: _readString(json['fallback']),
         prefix: _readLiteral(json['prefix']),
+        textWrapMode: textWrapMode,
         imageAsset: imageAsset,
         imageWidthDots: imageWidthDots,
         imagePosition: imagePosition,
