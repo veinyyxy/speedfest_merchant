@@ -46,6 +46,19 @@
         "lineHeight": 1.08
       }
     },
+    "strong": {
+      "align": "left",
+      "bold": true,
+      "escPos": {
+        "smallFont": false,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 35,
+        "lineHeight": 1.35
+      }
+    },
     "orderNote": {
       "align": "left",
       "bold": false,
@@ -57,6 +70,19 @@
       "bitmap": {
         "fontSize": 30,
         "lineHeight": 1.15
+      }
+    },
+    "itemInstruction": {
+      "align": "left",
+      "bold": false,
+      "escPos": {
+        "smallFont": false,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 20,
+        "lineHeight": 1.12
       }
     }
   },
@@ -71,6 +97,15 @@
       "type": "text",
       "template": "Order #{{order.shortId}}",
       "style": "title"
+    },
+    {
+      "type": "text",
+      "template": "Due at {{order.dueAtLabel}}",
+      "style": "strong",
+      "when": {
+        "field": "order.dueAtLabel",
+        "operator": "notEmpty"
+      }
     },
     {
       "type": "text",
@@ -115,7 +150,8 @@
           "type": "text",
           "template": "Note: {{item.instructions}}",
           "prefix": "  - ",
-          "style": "normal",
+          "style": "itemInstruction",
+          "wrap": "output",
           "when": {
             "field": "item.instructions",
             "operator": "notEmpty"

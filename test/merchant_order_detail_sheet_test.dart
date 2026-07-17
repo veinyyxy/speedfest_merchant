@@ -4,6 +4,48 @@ import 'package:speedfest_merchant/Models/merchant_order.dart';
 import 'package:speedfest_merchant/OrderPage/merchant_order_detail_sheet.dart';
 
 void main() {
+  testWidgets('order details show the actual order note', (tester) async {
+    final order = MerchantOrder.fromJson({
+      'order_id': 'order-note-details',
+      'status': 'accepted',
+      'fulfillment_type': 'delivery',
+      'order_note': 'Please make it less spicy',
+      'delivery_note': 'Leave it at the side door',
+      'items': const [],
+      'pricing': const {},
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: MerchantOrderDetailSheet(order: order)),
+      ),
+    );
+
+    expect(find.text('Order Note'), findsOneWidget);
+    expect(find.text('Please make it less spicy'), findsOneWidget);
+    expect(find.text('Leave it at the side door'), findsNothing);
+  });
+
+  testWidgets('order details hide the note row when no order note exists', (
+    tester,
+  ) async {
+    final order = MerchantOrder.fromJson({
+      'order_id': 'empty-order-note-details',
+      'status': 'accepted',
+      'fulfillment_type': 'takeout',
+      'items': const [],
+      'pricing': const {},
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: MerchantOrderDetailSheet(order: order)),
+      ),
+    );
+
+    expect(find.text('Order Note'), findsNothing);
+  });
+
   testWidgets('order details show grouped option quantities and prices', (
     tester,
   ) async {

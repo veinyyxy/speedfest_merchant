@@ -1204,10 +1204,7 @@ String _receiptPaymentLabel(MerchantOrder order) {
 
 String _receiptDueAtLabel(MerchantOrder order) {
   if (order.dueAt != null) return _formatReceiptDateTime(order.dueAt!);
-  final dueLabel = order.dueAtLabel.trim();
-  if (dueLabel.isNotEmpty) return dueLabel;
-  if (order.createdAt != null) return _formatReceiptDateTime(order.createdAt!);
-  return order.createdAtLabel.trim();
+  return order.dueAtLabel.trim();
 }
 
 String _formatReceiptDateTime(DateTime value) {

@@ -124,7 +124,46 @@
         "lineHeight": 1.12
       }
     },
-    "itemNote": {
+    "rewardItem": {
+      "align": "left",
+      "bold": false,
+      "escPos": {
+        "smallFont": true,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 35,
+        "lineHeight": 1.1
+      }
+    },
+    "optionGroup": {
+      "align": "left",
+      "bold": false,
+      "escPos": {
+        "smallFont": true,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 30,
+        "lineHeight": 1.1
+      }
+    },
+    "optionItem": {
+      "align": "left",
+      "bold": false,
+      "escPos": {
+        "smallFont": true,
+        "widthScale": 1,
+        "heightScale": 1
+      },
+      "bitmap": {
+        "fontSize": 40,
+        "lineHeight": 1.1
+      }
+    },
+    "itemInstruction": {
       "align": "left",
       "bold": false,
       "escPos": {
@@ -292,7 +331,7 @@
           "type": "text",
           "template": "Reward item",
           "prefix": "  - ",
-          "style": "itemNote",
+          "style": "rewardItem",
           "when": {
             "field": "item.isReward",
             "operator": "isTrue"
@@ -306,7 +345,7 @@
             {
               "type": "text",
               "template": "-{{group.name}}:",
-              "style": "itemNote"
+              "style": "optionGroup"
             },
             {
               "type": "repeat",
@@ -318,7 +357,7 @@
                   "label": "{{option.quantity}}x{{option.name}}",
                   "amountField": "option.price",
                   "prefix": "  ",
-                  "style": "itemNote"
+                  "style": "optionItem"
                 }
               ]
             }
@@ -328,7 +367,8 @@
           "type": "text",
           "template": "Note: {{item.instructions}}",
           "prefix": "  - ",
-          "style": "itemNote",
+          "style": "itemInstruction",
+          "wrap": "output",
           "when": {
             "field": "item.instructions",
             "operator": "notEmpty"

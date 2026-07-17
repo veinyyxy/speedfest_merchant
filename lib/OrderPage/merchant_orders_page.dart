@@ -455,6 +455,15 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   }
 
   Future<void> _updateStatus(MerchantOrder order, String status) async {
+    int? preparationMinutes;
+    if (status == 'preparing') {
+      preparationMinutes = await showDialog<int>(
+        context: context,
+        builder: (_) => _PreparationTimeDialog(order: order),
+      );
+      if (preparationMinutes == null || !mounted) return;
+    }
+
     final session = context.read<MerchantSessionProvider>();
     final token = session.token;
     if (token == null) return;
@@ -465,6 +474,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
       token: token,
       orderId: order.id,
       status: status,
+      preparationMinutes: preparationMinutes,
     );
     if (!mounted) return;
 
@@ -1480,6 +1490,11 @@ class _OrderCard extends StatelessWidget {
                       icon: Icons.credit_card_outlined,
                       label: order.paymentDetailStatusLabel,
                     ),
+                    if (order.dueAtLabel.isNotEmpty)
+                      _InfoPill(
+                        icon: Icons.schedule_outlined,
+                        label: 'Due at ${order.dueAtLabel}',
+                      ),
                     if (order.hasRefund)
                       _InfoPill(
                         icon: Icons.reply_all_outlined,
@@ -1501,6 +1516,7 @@ class _OrderCard extends StatelessWidget {
                 ],
                 const SizedBox(height: 14),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     TextButton.icon(
                       onPressed: onOpenDetail,
@@ -1518,37 +1534,47 @@ class _OrderCard extends StatelessWidget {
                             )
                           : const Icon(Icons.print_outlined),
                     ),
-                    const Spacer(),
-                    if (order.canCollectInStorePayment)
-                      IconButton(
-                        tooltip: 'Collect payment',
-                        onPressed: isUpdating ? null : onCollectInStorePayment,
-                        icon: const Icon(Icons.point_of_sale_outlined),
-                        color: Colors.green.shade700,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Wrap(
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 6,
+                        runSpacing: 8,
+                        children: [
+                          if (order.canCollectInStorePayment)
+                            IconButton(
+                              tooltip: 'Collect payment',
+                              onPressed: isUpdating
+                                  ? null
+                                  : onCollectInStorePayment,
+                              icon: const Icon(Icons.point_of_sale_outlined),
+                              color: Colors.green.shade700,
+                            ),
+                          for (final action in destructiveActions)
+                            TextButton(
+                              onPressed: isUpdating
+                                  ? null
+                                  : action.status == 'refunded'
+                                  ? onRefund
+                                  : () => onUpdateStatus(action.status),
+                              style: TextButton.styleFrom(
+                                foregroundColor: action.status == 'cancelled'
+                                    ? Colors.red.shade700
+                                    : Colors.orange.shade800,
+                              ),
+                              child: Text(action.label),
+                            ),
+                          if (nextAction != null)
+                            FilledButton(
+                              onPressed: isUpdating
+                                  ? null
+                                  : () => onUpdateStatus(nextAction.status),
+                              child: Text(nextAction.label),
+                            ),
+                        ],
                       ),
-                    for (final action in destructiveActions) ...[
-                      TextButton(
-                        onPressed: isUpdating
-                            ? null
-                            : action.status == 'refunded'
-                            ? onRefund
-                            : () => onUpdateStatus(action.status),
-                        style: TextButton.styleFrom(
-                          foregroundColor: action.status == 'cancelled'
-                              ? Colors.red.shade700
-                              : Colors.orange.shade800,
-                        ),
-                        child: Text(action.label),
-                      ),
-                      const SizedBox(width: 6),
-                    ],
-                    if (nextAction != null)
-                      FilledButton(
-                        onPressed: isUpdating
-                            ? null
-                            : () => onUpdateStatus(nextAction.status),
-                        child: Text(nextAction.label),
-                      ),
+                    ),
                   ],
                 ),
               ],
@@ -1608,6 +1634,139 @@ class _StatusChip extends StatelessWidget {
           fontSize: 12,
         ),
       ),
+    );
+  }
+}
+
+class _PreparationTimeDialog extends StatefulWidget {
+  const _PreparationTimeDialog({required this.order});
+
+  final MerchantOrder order;
+
+  @override
+  State<_PreparationTimeDialog> createState() => _PreparationTimeDialogState();
+}
+
+class _PreparationTimeDialogState extends State<_PreparationTimeDialog> {
+  static const _quickMinutes = [10, 15, 20, 30, 45, 60];
+
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _minutesController;
+
+  int? get _minutes => int.tryParse(_minutesController.text.trim());
+
+  DateTime? get _dueAt {
+    final minutes = _minutes;
+    final createdAt = widget.order.createdAt;
+    if (minutes == null || createdAt == null) return null;
+    return createdAt.add(Duration(minutes: minutes));
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _minutesController = TextEditingController(
+      text: (widget.order.preparationMinutes ?? 30).toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _minutesController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dueAt = _dueAt;
+
+    return AlertDialog(
+      title: const Text('Start preparing'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(widget.order.displayId),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final minutes in _quickMinutes)
+                    ChoiceChip(
+                      label: Text('$minutes min'),
+                      selected: _minutes == minutes,
+                      onSelected: (_) {
+                        setState(() {
+                          _minutesController.text = minutes.toString();
+                        });
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _minutesController,
+                keyboardType: TextInputType.number,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                decoration: const InputDecoration(
+                  labelText: 'Preparation time',
+                  suffixText: 'minutes',
+                  border: OutlineInputBorder(),
+                ),
+                validator: _preparationMinutesValidator,
+                onChanged: (_) => setState(() {}),
+              ),
+              if (dueAt != null) ...[
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.schedule_outlined, color: Colors.green.shade700),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Due at ${_formatOrderDateTime(dueAt)}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Calculated from the order creation time.',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!(_formKey.currentState?.validate() ?? false)) return;
+            Navigator.of(context).pop(_minutes);
+          },
+          child: const Text('Start'),
+        ),
+      ],
     );
   }
 }
@@ -2190,6 +2349,14 @@ String _formatDate(DateTime date) {
   return '${months[date.month - 1]} ${date.day}, ${date.year}';
 }
 
+String _formatOrderDateTime(DateTime value) {
+  final local = value.toLocal();
+  final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+  final minute = local.minute.toString().padLeft(2, '0');
+  final period = local.hour >= 12 ? 'PM' : 'AM';
+  return '${_formatDate(local)}, $hour:$minute $period';
+}
+
 String _humanize(String value) {
   return value
       .replaceAll(RegExp(r'[_\-]+'), ' ')
@@ -2208,6 +2375,18 @@ String? _refundAmountValidator(String? value, double maxAmount) {
   if (parsed <= 0) return 'Amount must be greater than 0';
   if (parsed > maxAmount) {
     return 'Must be at most ${maxAmount.toStringAsFixed(2)}';
+  }
+  return null;
+}
+
+String? _preparationMinutesValidator(String? value) {
+  final text = value?.trim() ?? '';
+  if (!RegExp(r'^\d+$').hasMatch(text)) {
+    return 'Enter a whole number of minutes';
+  }
+  final minutes = int.tryParse(text);
+  if (minutes == null || minutes < 1 || minutes > 1440) {
+    return 'Enter between 1 and 1440 minutes';
   }
   return null;
 }

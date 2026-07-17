@@ -26,6 +26,13 @@ void main() {
       expect(template.testSections, isNotEmpty);
       expect(template.paperProfiles.keys, containsAll(['mm58', 'mm80']));
       expect(template.styles['orderNote']?.bitmapFontSize, 30);
+      expect(template.styles.containsKey('strong'), isTrue);
+      expect(
+        template.sections.any(
+          (section) => section.template == 'Due at {{order.dueAtLabel}}',
+        ),
+        isTrue,
+      );
       final orderNoteIndex = template.sections.indexWhere(
         (section) => section.template == 'Note: {{order.note}}',
       );
@@ -35,6 +42,38 @@ void main() {
         ReceiptTextWrapMode.output,
       );
       if (path.endsWith('order_receipt_v1.json')) {
+        expect(
+          template.styles.keys,
+          containsAll([
+            'rewardItem',
+            'optionGroup',
+            'optionItem',
+            'itemInstruction',
+          ]),
+        );
+        expect(template.styles.containsKey('itemNote'), isFalse);
+        final itemRepeat = template.sections.firstWhere(
+          (section) => section.source == 'order.items',
+        );
+        expect(
+          itemRepeat.children
+              .firstWhere((element) => element.template == 'Reward item')
+              .style,
+          'rewardItem',
+        );
+        final optionGroupRepeat = itemRepeat.children.firstWhere(
+          (element) => element.source == 'item.optionGroups',
+        );
+        expect(optionGroupRepeat.children.first.style, 'optionGroup');
+        final optionRepeat = optionGroupRepeat.children.firstWhere(
+          (element) => element.source == 'group.options',
+        );
+        expect(optionRepeat.children.single.style, 'optionItem');
+        final itemInstruction = itemRepeat.children.firstWhere(
+          (element) => element.template == 'Note: {{item.instructions}}',
+        );
+        expect(itemInstruction.style, 'itemInstruction');
+        expect(itemInstruction.textWrapMode, ReceiptTextWrapMode.output);
         expect(template.sections.first.type, ReceiptElementType.image);
         expect(
           template.sections.first.imageAsset,
@@ -60,6 +99,16 @@ void main() {
           template.sections[customerIndex + 3].template,
           'ID: #{{order.shortId}}',
         );
+      } else {
+        expect(template.styles.containsKey('itemInstruction'), isTrue);
+        final itemRepeat = template.sections.firstWhere(
+          (section) => section.source == 'order.items',
+        );
+        final itemInstruction = itemRepeat.children.firstWhere(
+          (element) => element.template == 'Note: {{item.instructions}}',
+        );
+        expect(itemInstruction.style, 'itemInstruction');
+        expect(itemInstruction.textWrapMode, ReceiptTextWrapMode.output);
       }
     }
   });
@@ -75,6 +124,9 @@ void main() {
       'fulfillment_type': 'delivery',
       'payment_status': 'paid',
       'payment_channel': 'online',
+      'created_at': '2026-07-17T18:00:00Z',
+      'preparation_minutes': 30,
+      'due_at': '2026-07-17T18:30:00Z',
       'customer': {'name': 'Alex'},
       'order_note': orderNote,
       'items': [
@@ -110,6 +162,8 @@ void main() {
 
     expect(receipt.text, contains('Powered by Speedfeast'));
     expect(receipt.text, contains('Alex\nNote: $orderNote'));
+    expect(order.preparationMinutes, 30);
+    expect(receipt.text, contains('Due at July 17'));
     expect(receipt.text, contains('1xBurger'));
     expect(receipt.text, contains('Note: No onions'));
     expect(receipt.text, contains(r'$12.50'));
@@ -189,6 +243,7 @@ void main() {
     );
 
     expect(receipt.text, contains('Mary Jane W.'));
+    expect(receipt.text, isNot(contains('Due at')));
     expect(receipt.text, isNot(contains('Mary Jane Watson')));
     expect(receipt.html, contains('Mary Jane W.'));
     expect(receipt.html, isNot(contains('Mary Jane Watson')));
@@ -278,6 +333,9 @@ void main() {
           .renderOrder(
             order: MerchantOrder.fromJson({
               'order_id': 'fallback-order',
+              'created_at': '2026-07-17T18:00:00Z',
+              'preparation_minutes': 20,
+              'due_at': '2026-07-17T18:20:00Z',
               'customer': {'name': 'Alex'},
               'order_note': 'Call on arrival',
               'items': [
@@ -293,6 +351,7 @@ void main() {
             paperSize: MerchantPrinterPaperSize.mm80,
           );
       expect(receipt.text, contains('Alex\nNote: Call on arrival'));
+      expect(receipt.text, contains('Due at July 17'));
       expect(receipt.text, contains('Note: No onions'));
     },
   );

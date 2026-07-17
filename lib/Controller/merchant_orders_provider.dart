@@ -97,15 +97,21 @@ class MerchantOrdersProvider with ChangeNotifier {
     required String token,
     required String orderId,
     required String status,
+    int? preparationMinutes,
   }) async {
     _isUpdating = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
+      final body = <String, dynamic>{'order_id': orderId, 'status': status};
+      if (preparationMinutes != null) {
+        body['preparation_minutes'] = preparationMinutes;
+      }
+
       final rawResponse = await apiClient.post(
         MerchantServiceConfig.merchantOrderStatusUpdatePath,
-        {'order_id': orderId, 'status': status},
+        body,
         token: token,
       );
       final response = Map<String, dynamic>.from(rawResponse as Map);

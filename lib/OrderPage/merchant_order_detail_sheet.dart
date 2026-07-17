@@ -111,6 +111,13 @@ class _MerchantOrderDetailSheetState extends State<MerchantOrderDetailSheet> {
             ),
             const SizedBox(height: 18),
             _DetailRow(label: 'Created', value: order.createdAtLabel),
+            if (order.preparationTimeLabel.isNotEmpty)
+              _DetailRow(
+                label: 'Preparation',
+                value: order.preparationTimeLabel,
+              ),
+            if (order.dueAtLabel.isNotEmpty)
+              _DetailRow(label: 'Due at', value: order.dueAtLabel),
             _DetailRow(label: 'Fulfillment', value: order.fulfillmentLabel),
             _PaymentDetailRow(
               value: order.paymentDetailStatusLabel,
@@ -137,7 +144,7 @@ class _MerchantOrderDetailSheetState extends State<MerchantOrderDetailSheet> {
             _DetailRow(label: 'Address', value: order.shippingAddress),
             _DetailRow(label: 'Table', value: order.tableNumber),
             _DetailRow(label: 'Pickup', value: order.pickupLocation),
-            _DetailRow(label: 'Note', value: order.deliveryNote),
+            _DetailRow(label: 'Order Note', value: order.orderNote),
             if (order.isReviewed) ...[
               const SizedBox(height: 12),
               Divider(color: Colors.grey.shade200),

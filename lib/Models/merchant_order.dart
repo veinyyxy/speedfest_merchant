@@ -9,6 +9,7 @@ class MerchantOrder {
     required this.createdAt,
     required this.updatedAt,
     required this.createdAtLabel,
+    required this.preparationMinutes,
     required this.dueAt,
     required this.dueAtLabel,
     required this.customerName,
@@ -42,6 +43,7 @@ class MerchantOrder {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final String createdAtLabel;
+  final int? preparationMinutes;
   final DateTime? dueAt;
   final String dueAtLabel;
   final String customerName;
@@ -155,6 +157,8 @@ class MerchantOrder {
           normalizedPaymentStatus == 'refunded');
   bool get isReviewed => review != null;
   String get reviewComment => review?.comment ?? '';
+  String get preparationTimeLabel =>
+      preparationMinutes == null ? '' : '$preparationMinutes min';
 
   factory MerchantOrder.fromJson(Map<String, dynamic> json) {
     final customer = _asMap(_firstValue(json, const ['customer', 'user']));
@@ -182,31 +186,18 @@ class MerchantOrder {
     final fulfillmentDetail = _asMap(
       _firstValue(json, const ['fulfillment_detail', 'fulfillmentDetail']),
     );
-    final dueAtValue =
+    final preparationMinutesValue =
         _firstValue(json, const [
-          'due_at',
-          'dueAt',
-          'scheduled_at',
-          'scheduledAt',
-          'scheduled_time',
-          'scheduledTime',
-          'estimated_delivery',
-          'estimatedDelivery',
-          'pickup_time',
-          'pickupTime',
+          'preparation_minutes',
+          'preparationMinutes',
         ]) ??
         _firstValue(fulfillmentDetail, const [
-          'due_at',
-          'dueAt',
-          'scheduled_at',
-          'scheduledAt',
-          'scheduled_time',
-          'scheduledTime',
-          'estimated_delivery',
-          'estimatedDelivery',
-          'pickup_time',
-          'pickupTime',
+          'preparation_minutes',
+          'preparationMinutes',
         ]);
+    final dueAtValue =
+        _firstValue(json, const ['due_at', 'dueAt']) ??
+        _firstValue(fulfillmentDetail, const ['due_at', 'dueAt']);
 
     return MerchantOrder(
       id: _firstString(json, const ['order_id', 'orderId', 'id']),
@@ -232,6 +223,7 @@ class MerchantOrder {
       createdAt: _parseDate(createdAtValue),
       updatedAt: _parseDate(updatedAtValue),
       createdAtLabel: _formatDate(createdAtValue),
+      preparationMinutes: _optionalInt(preparationMinutesValue),
       dueAt: _parseDate(dueAtValue),
       dueAtLabel: _formatDate(dueAtValue),
       customerName: _firstString(customer, const [
@@ -638,6 +630,12 @@ int _firstInt(
   final value = _firstValue(json, keys);
   if (value is num) return value.toInt();
   return int.tryParse(value?.toString() ?? '') ?? fallback;
+}
+
+int? _optionalInt(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toInt();
+  return int.tryParse(value.toString());
 }
 
 bool _firstBool(
