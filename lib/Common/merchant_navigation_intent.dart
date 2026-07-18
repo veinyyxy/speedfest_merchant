@@ -3,7 +3,14 @@ import 'package:flutter/foundation.dart';
 class MerchantNavigationIntent {
   const MerchantNavigationIntent._();
 
+  static const ordersDestination = 'orders';
+  static const productsDestination = 'products';
+  static const rewardsDestination = 'rewards';
+  static const settingsDestination = 'settings';
+  static const accountDestination = 'account';
+
   static final selectedTabIndex = ValueNotifier<int>(0);
+  static final selectedDestinationId = ValueNotifier<String>(ordersDestination);
   static final ordersRefreshTick = ValueNotifier<int>(0);
   static final orderOpenIntent = ValueNotifier<MerchantOrderOpenIntent?>(null);
   static final notificationsRefreshTick = ValueNotifier<int>(0);
@@ -14,6 +21,7 @@ class MerchantNavigationIntent {
 
   static void openOrders({bool refresh = true}) {
     selectedTabIndex.value = 0;
+    selectedDestinationId.value = ordersDestination;
     if (refresh) {
       refreshOrders();
     }
@@ -36,6 +44,7 @@ class MerchantNavigationIntent {
     }
 
     selectedTabIndex.value = 0;
+    selectedDestinationId.value = ordersDestination;
     orderOpenIntent.value = MerchantOrderOpenIntent(
       sequence: _nextSequence(),
       orderId: normalizedOrderId,

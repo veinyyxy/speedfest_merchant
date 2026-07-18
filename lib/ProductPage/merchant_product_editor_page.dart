@@ -1459,6 +1459,7 @@ class _OptionEditor extends StatelessWidget {
           if (option.useExistingProduct) ...[
             DropdownButtonFormField<String>(
               value: option.existingProductId,
+              isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Product',
                 border: OutlineInputBorder(),
@@ -1469,6 +1470,7 @@ class _OptionEditor extends StatelessWidget {
                     value: product.id,
                     child: Text(
                       '${product.name} · CAD \$${product.basePrice.toStringAsFixed(2)}',
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),

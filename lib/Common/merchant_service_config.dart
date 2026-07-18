@@ -19,6 +19,16 @@ class MerchantServiceConfig {
   static const merchantLoginPath = '/api/merchant/auth/login';
   static const merchantValidatePath = '/api/merchant/auth/validate';
   static const merchantLogoutPath = '/api/merchant/auth/logout';
+  static const merchantPasswordChangePath =
+      '/api/merchant/auth/password/change';
+  static const merchantUsersPath = '/api/merchant/users';
+  static const merchantUserPermissionsPath = '/api/merchant/users/permissions';
+  static const merchantUserCreatePath = '/api/merchant/users/create';
+  static const merchantUserUpdatePath = '/api/merchant/users/update';
+  static const merchantUserPermissionsUpdatePath =
+      '/api/merchant/users/permissions/update';
+  static const merchantUserPasswordResetPath =
+      '/api/merchant/users/password/reset';
   static const merchantOrdersPath = '/api/merchant/orders';
   static const merchantOrderDetailPath = '/api/merchant/orders/detail';
   static const merchantOrderStatusUpdatePath =

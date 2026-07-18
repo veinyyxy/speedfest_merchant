@@ -8,10 +8,11 @@ import 'package:http/http.dart' as http;
 import '../Common/merchant_service_config.dart';
 
 class AppException implements Exception {
-  const AppException(this.message, {this.statusCode});
+  const AppException(this.message, {this.statusCode, this.code});
 
   final String message;
   final int? statusCode;
+  final String? code;
 
   @override
   String toString() =>
@@ -24,6 +25,7 @@ class SignedApiClient {
     this.clientId = MerchantServiceConfig.clientId,
     this.hmacSecretKey = MerchantServiceConfig.hmacSecretKey,
     http.Client? httpClient,
+    this.onAuthenticationFailure,
   }) : _httpClient = httpClient ?? http.Client();
 
   final String baseUrl;
@@ -31,6 +33,7 @@ class SignedApiClient {
   final String hmacSecretKey;
   final http.Client _httpClient;
   final Random _random = Random.secure();
+  ValueChanged<AppException>? onAuthenticationFailure;
 
   Uri buildUri(String path, [Map<String, dynamic>? queryParameters]) {
     final normalizedQuery = queryParameters?.map(
@@ -52,7 +55,7 @@ class SignedApiClient {
 
     try {
       final response = await _httpClient.get(uri, headers: headers);
-      return _handleResponse(response);
+      return _handleResponse(response, authenticated: _hasToken(token));
     } on http.ClientException catch (e) {
       throw AppException('Network error: ${e.message}');
     }
@@ -73,7 +76,7 @@ class SignedApiClient {
         headers: headers,
         body: encodedBody,
       );
-      return _handleResponse(response);
+      return _handleResponse(response, authenticated: _hasToken(token));
     } on http.ClientException catch (e) {
       throw AppException('Network error: ${e.message}');
     }
@@ -99,7 +102,7 @@ class SignedApiClient {
     try {
       final streamedResponse = await _httpClient.send(request);
       final response = await http.Response.fromStream(streamedResponse);
-      return _handleResponse(response);
+      return _handleResponse(response, authenticated: _hasToken(token));
     } on http.ClientException catch (e) {
       throw AppException('Network error: ${e.message}');
     }
@@ -150,7 +153,10 @@ class SignedApiClient {
         .join('&');
   }
 
-  dynamic _handleResponse(http.Response response) {
+  dynamic _handleResponse(
+    http.Response response, {
+    required bool authenticated,
+  }) {
     if (kDebugMode) {
       debugPrint('${response.request?.method} ${response.request?.url}');
       debugPrint('Status: ${response.statusCode}');
@@ -162,6 +168,7 @@ class SignedApiClient {
     }
 
     var errorMessage = 'Request failed';
+    String? errorCode;
     if (response.body.isNotEmpty) {
       try {
         final decoded = jsonDecode(response.body);
@@ -170,6 +177,7 @@ class SignedApiClient {
               decoded['error']?.toString() ??
               decoded['message']?.toString() ??
               errorMessage;
+          errorCode = decoded['code']?.toString();
         } else {
           errorMessage = response.body;
         }
@@ -178,6 +186,19 @@ class SignedApiClient {
       }
     }
 
-    throw AppException(errorMessage, statusCode: response.statusCode);
+    final exception = AppException(
+      errorMessage,
+      statusCode: response.statusCode,
+      code: errorCode,
+    );
+    if (authenticated &&
+        (response.statusCode == 401 ||
+            errorCode == 'MERCHANT_USER_INACTIVE' ||
+            errorCode == 'MERCHANT_REAUTHENTICATION_REQUIRED')) {
+      onAuthenticationFailure?.call(exception);
+    }
+    throw exception;
   }
+
+  bool _hasToken(String? token) => token != null && token.trim().isNotEmpty;
 }

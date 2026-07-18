@@ -11,8 +11,10 @@ import 'Controller/merchant_printers_provider.dart';
 import 'Controller/merchant_rewards_provider.dart';
 import 'Controller/merchant_settings_provider.dart';
 import 'Controller/merchant_session_provider.dart';
+import 'Controller/merchant_users_provider.dart';
 import 'HomePage/merchant_shell_page.dart';
 import 'LoginPage/merchant_login_page.dart';
+import 'LoginPage/merchant_password_change_page.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
@@ -36,6 +38,7 @@ Future<void> main() async {
         ),
         ChangeNotifierProvider(create: (_) => MerchantRewardsProvider()),
         ChangeNotifierProvider(create: (_) => MerchantSettingsProvider()),
+        ChangeNotifierProvider(create: (_) => MerchantUsersProvider()),
       ],
       child: const MerchantApp(),
     ),
@@ -80,8 +83,10 @@ class _AuthGate extends StatelessWidget {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    return session.isLoggedIn
-        ? const MerchantShellPage()
-        : const MerchantLoginPage();
+    if (!session.isLoggedIn) return const MerchantLoginPage();
+    if (session.merchantUser?.mustChangePassword == true) {
+      return const MerchantPasswordChangePage(required: true);
+    }
+    return const MerchantShellPage();
   }
 }

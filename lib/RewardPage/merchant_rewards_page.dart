@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../Common/merchant_filter_preferences.dart';
+import '../Common/merchant_permissions.dart';
 import '../Controller/merchant_rewards_provider.dart';
 import '../Controller/merchant_session_provider.dart';
 import '../Models/merchant_reward.dart';
@@ -183,17 +184,20 @@ class _MerchantRewardsPageState extends State<MerchantRewardsPage> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MerchantRewardsProvider>();
+    final session = context.watch<MerchantSessionProvider>();
     final rewards = _filteredRewards(provider.rewards);
+    final canManageRewards = session.can(MerchantPermissions.rewardsManage);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Rewards'),
         actions: [
-          IconButton(
-            tooltip: 'Add reward',
-            onPressed: _openCreateReward,
-            icon: const Icon(Icons.add),
-          ),
+          if (canManageRewards)
+            IconButton(
+              tooltip: 'Add reward',
+              onPressed: _openCreateReward,
+              icon: const Icon(Icons.add),
+            ),
           IconButton(
             tooltip: 'Refresh',
             onPressed: provider.isLoading ? null : _fetchRewards,
@@ -207,7 +211,7 @@ class _MerchantRewardsPageState extends State<MerchantRewardsPage> {
             pointsPerCad: provider.pointsPerCad,
             isLoading: provider.isLoadingSettings,
             isSaving: provider.isSavingSettings,
-            onEdit: _editEarnRate,
+            onEdit: canManageRewards ? _editEarnRate : null,
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -233,8 +237,8 @@ class _MerchantRewardsPageState extends State<MerchantRewardsPage> {
               errorMessage: provider.errorMessage,
               rewards: rewards,
               onRefresh: _fetchRewards,
-              onEdit: _openEditReward,
-              onToggleActive: _setRewardActive,
+              onEdit: canManageRewards ? _openEditReward : null,
+              onToggleActive: canManageRewards ? _setRewardActive : null,
             ),
           ),
         ],
@@ -262,7 +266,7 @@ class _EarnRatePanel extends StatelessWidget {
   final double pointsPerCad;
   final bool isLoading;
   final bool isSaving;
-  final VoidCallback onEdit;
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -308,17 +312,18 @@ class _EarnRatePanel extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            OutlinedButton.icon(
-              onPressed: isLoading || isSaving ? null : onEdit,
-              icon: isSaving
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.edit_outlined),
-              label: Text(isSaving ? 'Saving' : 'Edit'),
-            ),
+            if (onEdit != null)
+              OutlinedButton.icon(
+                onPressed: isLoading || isSaving ? null : onEdit,
+                icon: isSaving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.edit_outlined),
+                label: Text(isSaving ? 'Saving' : 'Edit'),
+              ),
           ],
         ),
       ),
@@ -452,8 +457,8 @@ class _RewardsBody extends StatelessWidget {
   final String? errorMessage;
   final List<MerchantReward> rewards;
   final Future<void> Function() onRefresh;
-  final void Function(MerchantReward reward) onEdit;
-  final void Function(MerchantReward reward, bool active) onToggleActive;
+  final void Function(MerchantReward reward)? onEdit;
+  final void Function(MerchantReward reward, bool active)? onToggleActive;
 
   @override
   Widget build(BuildContext context) {
@@ -489,8 +494,10 @@ class _RewardsBody extends StatelessWidget {
           final reward = rewards[index];
           return _RewardCard(
             reward: reward,
-            onEdit: () => onEdit(reward),
-            onToggleActive: (value) => onToggleActive(reward, value),
+            onEdit: onEdit == null ? null : () => onEdit!(reward),
+            onToggleActive: onToggleActive == null
+                ? null
+                : (value) => onToggleActive!(reward, value),
           );
         },
       ),
@@ -506,8 +513,8 @@ class _RewardCard extends StatelessWidget {
   });
 
   final MerchantReward reward;
-  final VoidCallback onEdit;
-  final ValueChanged<bool> onToggleActive;
+  final VoidCallback? onEdit;
+  final ValueChanged<bool>? onToggleActive;
 
   @override
   Widget build(BuildContext context) {
@@ -547,11 +554,12 @@ class _RewardCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       _StatusChip(active: reward.active),
-                      IconButton(
-                        tooltip: 'Edit reward',
-                        onPressed: onEdit,
-                        icon: const Icon(Icons.edit_outlined),
-                      ),
+                      if (onEdit != null)
+                        IconButton(
+                          tooltip: 'Edit reward',
+                          onPressed: onEdit,
+                          icon: const Icon(Icons.edit_outlined),
+                        ),
                     ],
                   ),
                   if (reward.description.isNotEmpty) ...[
@@ -592,7 +600,13 @@ class _RewardCard extends StatelessWidget {
                         style: TextStyle(color: Colors.grey.shade700),
                       ),
                       const Spacer(),
-                      Switch(value: reward.active, onChanged: onToggleActive),
+                      if (onToggleActive != null)
+                        Switch(value: reward.active, onChanged: onToggleActive)
+                      else
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(reward.active ? 'On' : 'Off'),
+                        ),
                     ],
                   ),
                 ],

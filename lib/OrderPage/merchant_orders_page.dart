@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../Common/merchant_filter_preferences.dart';
 import '../Common/merchant_navigation_intent.dart';
+import '../Common/merchant_permissions.dart';
 import '../Controller/merchant_notifications_provider.dart';
 import '../Controller/merchant_orders_provider.dart';
 import '../Controller/merchant_printers_provider.dart';
@@ -579,6 +580,8 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     final detail = await _fetchOrderDetailById(orderId);
     if (!mounted || detail == null) return;
 
+    final session = context.read<MerchantSessionProvider>();
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -588,8 +591,12 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
       ),
       builder: (_) => MerchantOrderDetailSheet(
         order: detail,
-        onPrintOrder: _printOrder,
-        onSyncPaymentRecords: detail.isInStorePayment
+        onPrintOrder: session.can(MerchantPermissions.ordersPrint)
+            ? _printOrder
+            : null,
+        onSyncPaymentRecords:
+            detail.isInStorePayment ||
+                !session.can(MerchantPermissions.ordersPaymentSync)
             ? null
             : _syncPaymentRecords,
       ),
@@ -611,6 +618,18 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   Future<void> _printOrder(MerchantOrder order) async {
     final printersProvider = context.read<MerchantPrintersProvider>();
     if (printersProvider.defaultPrinter == null) {
+      final session = context.read<MerchantSessionProvider>();
+      if (!session.can(MerchantPermissions.printersManage)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No default printer is configured. Ask a manager to connect one.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
       final openPrinters = await _confirmOpenPrinters();
       if (!mounted) return;
       if (openPrinters) {
@@ -893,6 +912,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   Widget build(BuildContext context) {
     final provider = context.watch<MerchantOrdersProvider>();
     final printersProvider = context.watch<MerchantPrintersProvider>();
+    final session = context.watch<MerchantSessionProvider>();
     final orders = _filteredOrders(provider.orders);
     final statusFilters = _businessFilterMode
         ? const <_OrderFilter>[]
@@ -970,10 +990,20 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
               needsAcceptanceReminder: _needsAcceptanceReminder,
               onRefresh: _fetchOrders,
               onOpenDetail: _showDetail,
-              onPrintOrder: _printOrder,
-              onUpdateStatus: _updateStatus,
-              onRefund: _refundOrder,
-              onCollectInStorePayment: _collectInStorePayment,
+              onPrintOrder: session.can(MerchantPermissions.ordersPrint)
+                  ? _printOrder
+                  : null,
+              onUpdateStatus:
+                  session.can(MerchantPermissions.ordersStatusUpdate)
+                  ? _updateStatus
+                  : null,
+              onRefund: session.can(MerchantPermissions.ordersRefund)
+                  ? _refundOrder
+                  : null,
+              onCollectInStorePayment:
+                  session.can(MerchantPermissions.ordersPaymentCollect)
+                  ? _collectInStorePayment
+                  : null,
               isPrinting: printersProvider.isPrinting,
             ),
           ),
@@ -1316,10 +1346,10 @@ class _OrdersBody extends StatelessWidget {
   final bool Function(MerchantOrder order) needsAcceptanceReminder;
   final Future<void> Function() onRefresh;
   final ValueChanged<MerchantOrder> onOpenDetail;
-  final ValueChanged<MerchantOrder> onPrintOrder;
-  final void Function(MerchantOrder order, String status) onUpdateStatus;
-  final ValueChanged<MerchantOrder> onRefund;
-  final ValueChanged<MerchantOrder> onCollectInStorePayment;
+  final ValueChanged<MerchantOrder>? onPrintOrder;
+  final void Function(MerchantOrder order, String status)? onUpdateStatus;
+  final ValueChanged<MerchantOrder>? onRefund;
+  final ValueChanged<MerchantOrder>? onCollectInStorePayment;
   final bool isPrinting;
 
   @override
@@ -1370,10 +1400,14 @@ class _OrdersBody extends StatelessWidget {
               highlightNonce: highlightNonce,
               needsAcceptanceReminder: needsAcceptanceReminder(order),
               onOpenDetail: () => onOpenDetail(order),
-              onPrint: () => onPrintOrder(order),
-              onUpdateStatus: (status) => onUpdateStatus(order, status),
-              onRefund: () => onRefund(order),
-              onCollectInStorePayment: () => onCollectInStorePayment(order),
+              onPrint: onPrintOrder == null ? null : () => onPrintOrder!(order),
+              onUpdateStatus: onUpdateStatus == null
+                  ? null
+                  : (status) => onUpdateStatus!(order, status),
+              onRefund: onRefund == null ? null : () => onRefund!(order),
+              onCollectInStorePayment: onCollectInStorePayment == null
+                  ? null
+                  : () => onCollectInStorePayment!(order),
               isPrinting: isPrinting,
             ),
         ],
@@ -1404,10 +1438,10 @@ class _OrderCard extends StatelessWidget {
   final int highlightNonce;
   final bool needsAcceptanceReminder;
   final VoidCallback onOpenDetail;
-  final VoidCallback onPrint;
-  final ValueChanged<String> onUpdateStatus;
-  final VoidCallback onRefund;
-  final VoidCallback onCollectInStorePayment;
+  final VoidCallback? onPrint;
+  final ValueChanged<String>? onUpdateStatus;
+  final VoidCallback? onRefund;
+  final VoidCallback? onCollectInStorePayment;
   final bool isPrinting;
 
   @override
@@ -1523,17 +1557,20 @@ class _OrderCard extends StatelessWidget {
                       icon: const Icon(Icons.receipt_long_outlined, size: 18),
                       label: const Text('Details'),
                     ),
-                    IconButton(
-                      tooltip: 'Print order',
-                      onPressed: isUpdating || isPrinting ? null : onPrint,
-                      icon: isPrinting
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.print_outlined),
-                    ),
+                    if (onPrint != null)
+                      IconButton(
+                        tooltip: 'Print order',
+                        onPressed: isUpdating || isPrinting ? null : onPrint,
+                        icon: isPrinting
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.print_outlined),
+                      ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Wrap(
@@ -1542,7 +1579,8 @@ class _OrderCard extends StatelessWidget {
                         spacing: 6,
                         runSpacing: 8,
                         children: [
-                          if (order.canCollectInStorePayment)
+                          if (order.canCollectInStorePayment &&
+                              onCollectInStorePayment != null)
                             IconButton(
                               tooltip: 'Collect payment',
                               onPressed: isUpdating
@@ -1552,24 +1590,28 @@ class _OrderCard extends StatelessWidget {
                               color: Colors.green.shade700,
                             ),
                           for (final action in destructiveActions)
-                            TextButton(
-                              onPressed: isUpdating
-                                  ? null
-                                  : action.status == 'refunded'
-                                  ? onRefund
-                                  : () => onUpdateStatus(action.status),
-                              style: TextButton.styleFrom(
-                                foregroundColor: action.status == 'cancelled'
-                                    ? Colors.red.shade700
-                                    : Colors.orange.shade800,
+                            if ((action.status == 'refunded' &&
+                                    onRefund != null) ||
+                                (action.status != 'refunded' &&
+                                    onUpdateStatus != null))
+                              TextButton(
+                                onPressed: isUpdating
+                                    ? null
+                                    : action.status == 'refunded'
+                                    ? onRefund
+                                    : () => onUpdateStatus!(action.status),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: action.status == 'cancelled'
+                                      ? Colors.red.shade700
+                                      : Colors.orange.shade800,
+                                ),
+                                child: Text(action.label),
                               ),
-                              child: Text(action.label),
-                            ),
-                          if (nextAction != null)
+                          if (nextAction != null && onUpdateStatus != null)
                             FilledButton(
                               onPressed: isUpdating
                                   ? null
-                                  : () => onUpdateStatus(nextAction.status),
+                                  : () => onUpdateStatus!(nextAction.status),
                               child: Text(nextAction.label),
                             ),
                         ],

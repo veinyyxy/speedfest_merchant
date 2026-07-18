@@ -7,7 +7,9 @@ import 'signed_api_client.dart';
 
 class MerchantSessionProvider with ChangeNotifier {
   MerchantSessionProvider({SignedApiClient? apiClient})
-    : apiClient = apiClient ?? SignedApiClient();
+    : apiClient = apiClient ?? SignedApiClient() {
+    this.apiClient.onAuthenticationFailure = _handleAuthenticationFailure;
+  }
 
   final SignedApiClient apiClient;
 
@@ -23,6 +25,17 @@ class MerchantSessionProvider with ChangeNotifier {
   String? get token => _token;
   MerchantUser? get merchantUser => _merchantUser;
   String? get errorMessage => _errorMessage;
+  bool can(String permission) =>
+      _merchantUser?.hasPermission(permission) ?? false;
+  bool canAny(Iterable<String> permissions) => permissions.any(can);
+
+  void _handleAuthenticationFailure(AppException exception) {
+    if (_token == null && _merchantUser == null) return;
+    _token = null;
+    _merchantUser = null;
+    _errorMessage = exception.message;
+    notifyListeners();
+  }
 
   Future<void> initialize() async {
     _isInitializing = true;
@@ -54,10 +67,14 @@ class MerchantSessionProvider with ChangeNotifier {
 
       _token = response['token']?.toString();
       final userMap = Map<String, dynamic>.from(response['merchant_user']);
+      userMap['permissions'] =
+          response['permissions'] ?? userMap['permissions'];
       _merchantUser = MerchantUser.fromJson(userMap);
 
       final token = _token;
-      if (token != null && token.isNotEmpty) {
+      if (token != null &&
+          token.isNotEmpty &&
+          _merchantUser?.mustChangePassword != true) {
         await MerchantNotificationService.instance.registerForMerchant(
           apiClient: apiClient,
           token: token,
@@ -92,11 +109,14 @@ class MerchantSessionProvider with ChangeNotifier {
         return false;
       }
 
-      _merchantUser = MerchantUser.fromJson(
-        Map<String, dynamic>.from(response['merchant_user']),
-      );
+      final userMap = Map<String, dynamic>.from(response['merchant_user']);
+      userMap['permissions'] =
+          response['permissions'] ?? userMap['permissions'];
+      _merchantUser = MerchantUser.fromJson(userMap);
       final token = _token;
-      if (token != null && token.isNotEmpty) {
+      if (token != null &&
+          token.isNotEmpty &&
+          _merchantUser?.mustChangePassword != true) {
         await MerchantNotificationService.instance.registerForMerchant(
           apiClient: apiClient,
           token: token,
@@ -110,6 +130,44 @@ class MerchantSessionProvider with ChangeNotifier {
       _errorMessage = e.message;
       return false;
     } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final token = _token;
+    if (token == null || token.isEmpty) return false;
+
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      final rawResponse = await apiClient.post(
+        MerchantServiceConfig.merchantPasswordChangePath,
+        {'current_password': currentPassword, 'new_password': newPassword},
+        token: token,
+      );
+      final response = Map<String, dynamic>.from(rawResponse as Map);
+      _token = response['token']?.toString() ?? token;
+      final userMap = Map<String, dynamic>.from(response['merchant_user']);
+      userMap['permissions'] =
+          response['permissions'] ?? userMap['permissions'];
+      _merchantUser = MerchantUser.fromJson(userMap);
+      await MerchantNotificationService.instance.registerForMerchant(
+        apiClient: apiClient,
+        token: _token!,
+      );
+      notifyListeners();
+      return true;
+    } on AppException catch (e) {
+      _errorMessage = e.message;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _errorMessage = 'Unable to change password: $e';
+      notifyListeners();
       return false;
     }
   }

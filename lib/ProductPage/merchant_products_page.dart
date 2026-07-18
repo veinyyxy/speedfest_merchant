@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../Common/merchant_filter_preferences.dart';
+import '../Common/merchant_permissions.dart';
 import '../Common/merchant_service_config.dart';
 import '../Controller/merchant_products_provider.dart';
 import '../Controller/merchant_session_provider.dart';
@@ -192,17 +193,23 @@ class _MerchantProductsPageState extends State<MerchantProductsPage> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MerchantProductsProvider>();
+    final session = context.watch<MerchantSessionProvider>();
     final products = _filteredProducts(provider.products);
+    final canManageProducts = session.can(MerchantPermissions.productsManage);
+    final canManageAvailability = session.can(
+      MerchantPermissions.productsAvailabilityManage,
+    );
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Products'),
         actions: [
-          IconButton(
-            tooltip: 'Add product',
-            onPressed: _openCreateProduct,
-            icon: const Icon(Icons.add),
-          ),
+          if (canManageProducts)
+            IconButton(
+              tooltip: 'Add product',
+              onPressed: _openCreateProduct,
+              icon: const Icon(Icons.add),
+            ),
           IconButton(
             tooltip: 'Refresh',
             onPressed: provider.isLoading ? null : _fetchProducts,
@@ -240,9 +247,11 @@ class _MerchantProductsPageState extends State<MerchantProductsPage> {
               errorMessage: provider.errorMessage,
               products: products,
               onRefresh: _fetchProducts,
-              onEdit: _openEditProduct,
-              onToggleActive: _setProductActive,
-              onToggleMenuVisibility: _setProductVisibleInMenu,
+              onEdit: canManageProducts ? _openEditProduct : null,
+              onToggleActive: canManageAvailability ? _setProductActive : null,
+              onToggleMenuVisibility: canManageAvailability
+                  ? _setProductVisibleInMenu
+                  : null,
             ),
           ),
         ],
@@ -342,9 +351,9 @@ class _ProductsBody extends StatelessWidget {
   final String? errorMessage;
   final List<MerchantProduct> products;
   final Future<void> Function() onRefresh;
-  final void Function(MerchantProduct product) onEdit;
-  final void Function(MerchantProduct product, bool isActive) onToggleActive;
-  final void Function(MerchantProduct product, bool visibleInMenu)
+  final void Function(MerchantProduct product)? onEdit;
+  final void Function(MerchantProduct product, bool isActive)? onToggleActive;
+  final void Function(MerchantProduct product, bool visibleInMenu)?
   onToggleMenuVisibility;
 
   @override
@@ -381,10 +390,13 @@ class _ProductsBody extends StatelessWidget {
           final product = products[index];
           return _ProductCard(
             product: product,
-            onEdit: () => onEdit(product),
-            onToggleActive: (value) => onToggleActive(product, value),
-            onToggleMenuVisibility: (value) =>
-                onToggleMenuVisibility(product, value),
+            onEdit: onEdit == null ? null : () => onEdit!(product),
+            onToggleActive: onToggleActive == null
+                ? null
+                : (value) => onToggleActive!(product, value),
+            onToggleMenuVisibility: onToggleMenuVisibility == null
+                ? null
+                : (value) => onToggleMenuVisibility!(product, value),
           );
         },
       ),
@@ -401,9 +413,9 @@ class _ProductCard extends StatelessWidget {
   });
 
   final MerchantProduct product;
-  final VoidCallback onEdit;
-  final ValueChanged<bool> onToggleActive;
-  final ValueChanged<bool> onToggleMenuVisibility;
+  final VoidCallback? onEdit;
+  final ValueChanged<bool>? onToggleActive;
+  final ValueChanged<bool>? onToggleMenuVisibility;
 
   @override
   Widget build(BuildContext context) {
@@ -470,11 +482,12 @@ class _ProductCard extends StatelessWidget {
                                 visibleInMenu: product.visibleInMenu,
                               ),
                               _StatusChip(status: product.status),
-                              IconButton(
-                                tooltip: 'Edit product',
-                                onPressed: onEdit,
-                                icon: const Icon(Icons.edit_outlined),
-                              ),
+                              if (onEdit != null)
+                                IconButton(
+                                  tooltip: 'Edit product',
+                                  onPressed: onEdit,
+                                  icon: const Icon(Icons.edit_outlined),
+                                ),
                             ],
                           ),
                         ),
@@ -511,10 +524,16 @@ class _ProductCard extends StatelessWidget {
                         'Buyer menu',
                         style: TextStyle(color: Colors.grey.shade700),
                       ),
-                      Switch(
-                        value: product.visibleInMenu,
-                        onChanged: onToggleMenuVisibility,
-                      ),
+                      if (onToggleMenuVisibility != null)
+                        Switch(
+                          value: product.visibleInMenu,
+                          onChanged: onToggleMenuVisibility,
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(product.visibleInMenu ? 'On' : 'Off'),
+                        ),
                     ],
                   ),
                   Row(
@@ -524,12 +543,18 @@ class _ProductCard extends StatelessWidget {
                         product.isActive ? 'Available' : 'Paused',
                         style: TextStyle(color: Colors.grey.shade700),
                       ),
-                      Switch(
-                        value: product.isActive,
-                        onChanged: product.status == 'archived'
-                            ? null
-                            : onToggleActive,
-                      ),
+                      if (onToggleActive != null)
+                        Switch(
+                          value: product.isActive,
+                          onChanged: product.status == 'archived'
+                              ? null
+                              : onToggleActive,
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(product.isActive ? 'On' : 'Off'),
+                        ),
                     ],
                   ),
                 ],

@@ -7,6 +7,7 @@ import '../Common/merchant_local_notification_service.dart';
 import '../Common/merchant_local_notification_payload.dart';
 import '../Common/merchant_navigation_intent.dart';
 import '../Common/merchant_notification_alert_registry.dart';
+import '../Common/merchant_permissions.dart';
 import '../Controller/merchant_auto_print_service.dart';
 import '../Controller/merchant_notification_service.dart';
 import '../Controller/merchant_notifications_provider.dart';
@@ -15,6 +16,7 @@ import '../Controller/merchant_printers_provider.dart';
 import '../Controller/merchant_session_provider.dart';
 import '../Controller/merchant_settings_provider.dart';
 import '../Models/merchant_notification.dart';
+import '../LoginPage/merchant_password_change_page.dart';
 import '../OrderPage/merchant_orders_page.dart';
 import '../ProductPage/merchant_products_page.dart';
 import '../RewardPage/merchant_rewards_page.dart';
@@ -42,7 +44,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
     'customer_cancelled_order',
   };
 
-  int _selectedIndex = 0;
+  String _selectedDestinationId = MerchantNavigationIntent.ordersDestination;
   late final VoidCallback _selectedTabListener;
   late final VoidCallback _notificationsRefreshListener;
   late final VoidCallback _foregroundNotificationListener;
@@ -52,26 +54,21 @@ class _MerchantShellPageState extends State<MerchantShellPage>
   bool _notificationPollSeeded = false;
   bool _automaticPrintInFlight = false;
 
-  static const _pages = [
-    MerchantOrdersPage(),
-    MerchantProductsPage(),
-    MerchantRewardsPage(),
-    MerchantSettingsPage(),
-    _AccountPage(),
-  ];
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     MerchantLocalNotificationService.instance.attachTapListener();
-    _selectedIndex = MerchantNavigationIntent.selectedTabIndex.value;
+    _selectedDestinationId =
+        MerchantNavigationIntent.selectedDestinationId.value;
     _selectedTabListener = () {
-      final nextIndex = MerchantNavigationIntent.selectedTabIndex.value;
-      if (!mounted || nextIndex == _selectedIndex) return;
-      setState(() => _selectedIndex = nextIndex);
+      final nextId = MerchantNavigationIntent.selectedDestinationId.value;
+      if (!mounted || nextId == _selectedDestinationId) return;
+      setState(() => _selectedDestinationId = nextId);
     };
-    MerchantNavigationIntent.selectedTabIndex.addListener(_selectedTabListener);
+    MerchantNavigationIntent.selectedDestinationId.addListener(
+      _selectedTabListener,
+    );
     _notificationsRefreshListener = () {
       if (!mounted) return;
       _refreshNotificationCount();
@@ -93,7 +90,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
   void dispose() {
     _stopNotificationPolling();
     WidgetsBinding.instance.removeObserver(this);
-    MerchantNavigationIntent.selectedTabIndex.removeListener(
+    MerchantNavigationIntent.selectedDestinationId.removeListener(
       _selectedTabListener,
     );
     MerchantNavigationIntent.notificationsRefreshTick.removeListener(
@@ -108,7 +105,11 @@ class _MerchantShellPageState extends State<MerchantShellPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      MerchantNavigationIntent.refreshOrders();
+      if (context.read<MerchantSessionProvider>().can(
+        MerchantPermissions.ordersView,
+      )) {
+        MerchantNavigationIntent.refreshOrders();
+      }
       unawaited(_refreshNotificationCount());
       _startNotificationPolling();
       return;
@@ -117,9 +118,9 @@ class _MerchantShellPageState extends State<MerchantShellPage>
     _stopNotificationPolling();
   }
 
-  void _selectTab(int index) {
-    setState(() => _selectedIndex = index);
-    MerchantNavigationIntent.selectedTabIndex.value = index;
+  void _selectDestination(String destinationId) {
+    setState(() => _selectedDestinationId = destinationId);
+    MerchantNavigationIntent.selectedDestinationId.value = destinationId;
   }
 
   void _startNotificationPolling() {
@@ -142,6 +143,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
     if (_notificationPollInFlight || !mounted) return;
 
     final session = context.read<MerchantSessionProvider>();
+    if (!session.can(MerchantPermissions.ordersView)) return;
     final token = session.token;
     if (token == null || token.isEmpty) return;
 
@@ -207,6 +209,10 @@ class _MerchantShellPageState extends State<MerchantShellPage>
     }
 
     final session = context.read<MerchantSessionProvider>();
+    if (!session.can(MerchantPermissions.ordersView) ||
+        !session.can(MerchantPermissions.ordersPrint)) {
+      return;
+    }
     final token = session.token;
     if (token == null || token.isEmpty) return;
 
@@ -287,6 +293,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
 
   Future<void> _refreshNotificationCount() async {
     final session = context.read<MerchantSessionProvider>();
+    if (!session.can(MerchantPermissions.ordersView)) return;
     final token = session.token;
     if (token == null || token.isEmpty) return;
 
@@ -298,6 +305,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
 
   Future<void> _loadNotifications() async {
     final session = context.read<MerchantSessionProvider>();
+    if (!session.can(MerchantPermissions.ordersView)) return;
     final token = session.token;
     if (token == null || token.isEmpty) return;
 
@@ -572,18 +580,26 @@ class _MerchantShellPageState extends State<MerchantShellPage>
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 820;
+    final session = context.watch<MerchantSessionProvider>();
+    final destinations = _merchantDestinationsFor(session);
+    var selectedIndex = destinations.indexWhere(
+      (destination) => destination.id == _selectedDestinationId,
+    );
+    if (selectedIndex < 0) selectedIndex = 0;
+    final selectedDestination = destinations[selectedIndex];
+    final notificationButton = session.can(MerchantPermissions.ordersView)
+        ? _MerchantNotificationButton(onPressed: _showNotifications)
+        : null;
 
     if (wide) {
       return Scaffold(
-        floatingActionButton: _MerchantNotificationButton(
-          onPressed: _showNotifications,
-        ),
+        floatingActionButton: notificationButton,
         body: Row(
           children: [
             NavigationRail(
-              selectedIndex: _selectedIndex,
+              selectedIndex: selectedIndex,
               onDestinationSelected: (index) {
-                _selectTab(index);
+                _selectDestination(destinations[index].id);
               },
               labelType: NavigationRailLabelType.all,
               leading: Padding(
@@ -593,81 +609,103 @@ class _MerchantShellPageState extends State<MerchantShellPage>
                   color: Theme.of(context).colorScheme.primary,
                 ),
               ),
-              destinations: const [
-                NavigationRailDestination(
-                  icon: Icon(Icons.receipt_long_outlined),
-                  selectedIcon: Icon(Icons.receipt_long),
-                  label: Text('Orders'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.restaurant_menu_outlined),
-                  selectedIcon: Icon(Icons.restaurant_menu),
-                  label: Text('Products'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.card_giftcard_outlined),
-                  selectedIcon: Icon(Icons.card_giftcard),
-                  label: Text('Rewards'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.tune_outlined),
-                  selectedIcon: Icon(Icons.tune),
-                  label: Text('Settings'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.account_circle_outlined),
-                  selectedIcon: Icon(Icons.account_circle),
-                  label: Text('Account'),
-                ),
+              destinations: [
+                for (final destination in destinations)
+                  NavigationRailDestination(
+                    icon: Icon(destination.icon),
+                    selectedIcon: Icon(destination.selectedIcon),
+                    label: Text(destination.label),
+                  ),
               ],
             ),
             const VerticalDivider(width: 1),
-            Expanded(child: _pages[_selectedIndex]),
+            Expanded(child: selectedDestination.page),
           ],
         ),
       );
     }
 
     return Scaffold(
-      body: _pages[_selectedIndex],
-      floatingActionButton: _MerchantNotificationButton(
-        onPressed: _showNotifications,
-      ),
+      body: selectedDestination.page,
+      floatingActionButton: notificationButton,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
+        selectedIndex: selectedIndex,
         onDestinationSelected: (index) {
-          _selectTab(index);
+          _selectDestination(destinations[index].id);
         },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long),
-            label: 'Orders',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.restaurant_menu_outlined),
-            selectedIcon: Icon(Icons.restaurant_menu),
-            label: 'Products',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.card_giftcard_outlined),
-            selectedIcon: Icon(Icons.card_giftcard),
-            label: 'Rewards',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.tune_outlined),
-            selectedIcon: Icon(Icons.tune),
-            label: 'Settings',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.account_circle_outlined),
-            selectedIcon: Icon(Icons.account_circle),
-            label: 'Account',
-          ),
+        destinations: [
+          for (final destination in destinations)
+            NavigationDestination(
+              icon: Icon(destination.icon),
+              selectedIcon: Icon(destination.selectedIcon),
+              label: destination.label,
+            ),
         ],
       ),
     );
   }
+}
+
+class _MerchantDestination {
+  const _MerchantDestination({
+    required this.id,
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+    required this.page,
+  });
+
+  final String id;
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+  final Widget page;
+}
+
+List<_MerchantDestination> _merchantDestinationsFor(
+  MerchantSessionProvider session,
+) {
+  return [
+    if (session.can(MerchantPermissions.ordersView))
+      const _MerchantDestination(
+        id: MerchantNavigationIntent.ordersDestination,
+        label: 'Orders',
+        icon: Icons.receipt_long_outlined,
+        selectedIcon: Icons.receipt_long,
+        page: MerchantOrdersPage(),
+      ),
+    if (session.can(MerchantPermissions.productsView))
+      const _MerchantDestination(
+        id: MerchantNavigationIntent.productsDestination,
+        label: 'Products',
+        icon: Icons.restaurant_menu_outlined,
+        selectedIcon: Icons.restaurant_menu,
+        page: MerchantProductsPage(),
+      ),
+    if (session.can(MerchantPermissions.rewardsView))
+      const _MerchantDestination(
+        id: MerchantNavigationIntent.rewardsDestination,
+        label: 'Rewards',
+        icon: Icons.card_giftcard_outlined,
+        selectedIcon: Icons.card_giftcard,
+        page: MerchantRewardsPage(),
+      ),
+    if (session.canAny(MerchantPermissions.settingsArea))
+      const _MerchantDestination(
+        id: MerchantNavigationIntent.settingsDestination,
+        label: 'Settings',
+        icon: Icons.tune_outlined,
+        selectedIcon: Icons.tune,
+        page: MerchantSettingsPage(),
+      ),
+    const _MerchantDestination(
+      id: MerchantNavigationIntent.accountDestination,
+      label: 'Account',
+      icon: Icons.account_circle_outlined,
+      selectedIcon: Icons.account_circle,
+      page: _AccountPage(),
+    ),
+  ];
 }
 
 class _MerchantNotificationButton extends StatelessWidget {
@@ -1039,6 +1077,16 @@ class _AccountPageState extends State<_AccountPage> {
                   ? 'Enabling notifications'
                   : 'Enable notifications',
             ),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const MerchantPasswordChangePage(),
+              ),
+            ),
+            icon: const Icon(Icons.password_outlined),
+            label: const Text('Change password'),
           ),
           const SizedBox(height: 10),
           FilledButton.icon(

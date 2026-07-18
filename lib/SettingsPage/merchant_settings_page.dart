@@ -3,12 +3,14 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../Common/merchant_service_config.dart';
+import '../Common/merchant_permissions.dart';
 import '../Controller/merchant_printers_provider.dart';
 import '../Controller/merchant_session_provider.dart';
 import '../Controller/merchant_settings_provider.dart';
 import '../Models/merchant_buyer_config.dart';
 import '../Models/merchant_order_automation.dart';
 import '../PrinterPage/merchant_printers_page.dart';
+import '../UserPage/merchant_users_page.dart';
 
 class MerchantSettingsPage extends StatefulWidget {
   const MerchantSettingsPage({super.key});
@@ -98,13 +100,25 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
     if (token == null) return;
     final provider = context.read<MerchantSettingsProvider>();
 
-    await Future.wait([
-      provider.fetchBuyerConfig(apiClient: session.apiClient, token: token),
-      provider.fetchOrderAutomationSettings(
-        apiClient: session.apiClient,
-        token: token,
-      ),
-    ]);
+    final requests = <Future<void>>[];
+    if (session.canAny(const {
+      MerchantPermissions.settingsStoreManage,
+      MerchantPermissions.settingsPricingManage,
+      MerchantPermissions.settingsOperationsManage,
+    })) {
+      requests.add(
+        provider.fetchBuyerConfig(apiClient: session.apiClient, token: token),
+      );
+    }
+    if (session.can(MerchantPermissions.settingsAutomationManage)) {
+      requests.add(
+        provider.fetchOrderAutomationSettings(
+          apiClient: session.apiClient,
+          token: token,
+        ),
+      );
+    }
+    await Future.wait(requests);
     if (!mounted) return;
 
     final config = provider.buyerConfig;
@@ -361,6 +375,12 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
       MaterialPageRoute<void>(builder: (_) => const MerchantPrintersPage()),
     );
     if (mounted) setState(() {});
+  }
+
+  Future<void> _openUsers() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const MerchantUsersPage()));
   }
 
   Future<ImageSource?> _showImageSourcePicker() {
@@ -693,8 +713,23 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MerchantSettingsProvider>();
+    final session = context.watch<MerchantSessionProvider>();
     final printersProvider = context.watch<MerchantPrintersProvider>();
     final defaultPrinter = printersProvider.defaultPrinter;
+    final canManagePrinters = session.can(MerchantPermissions.printersManage);
+    final canViewUsers = session.can(MerchantPermissions.usersView);
+    final canManageStore = session.can(MerchantPermissions.settingsStoreManage);
+    final canManagePricing = session.can(
+      MerchantPermissions.settingsPricingManage,
+    );
+    final canManageOperations = session.can(
+      MerchantPermissions.settingsOperationsManage,
+    );
+    final canManageAutomation = session.can(
+      MerchantPermissions.settingsAutomationManage,
+    );
+    final canSaveBuyerConfig =
+        canManageStore || canManagePricing || canManageOperations;
     final isBusy =
         provider.isLoading ||
         provider.isSaving ||
@@ -731,502 +766,535 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
                 ),
                 const SizedBox(height: 12),
               ],
-              _SettingsCard(
-                title: 'Printers',
-                children: [
-                  Text(
-                    'Manage receipt printers for this device. Saved printers stay local to the merchant app.',
-                    style: TextStyle(color: Colors.grey.shade700),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: _openPrinters,
-                    icon: const Icon(Icons.print_outlined),
-                    label: const Text('Manage printers'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _SettingsCard(
-                title: 'Order Automation',
-                children: [
-                  if (provider.isLoadingOrderAutomation &&
-                      !_didLoadOrderAutomation) ...[
-                    const LinearProgressIndicator(),
+              if (canViewUsers) ...[
+                _SettingsCard(
+                  title: 'Users & Permissions',
+                  children: [
+                    Text(
+                      'Manage merchant accounts, roles, passwords, and access to app features.',
+                      style: TextStyle(color: Colors.grey.shade700),
+                    ),
                     const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _openUsers,
+                      icon: const Icon(Icons.manage_accounts_outlined),
+                      label: const Text('Manage users'),
+                    ),
                   ],
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Auto accept and start orders'),
-                    subtitle: const Text(
-                      'New paid orders are moved to Preparing and printed automatically.',
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (canManagePrinters) ...[
+                _SettingsCard(
+                  title: 'Printers',
+                  children: [
+                    Text(
+                      'Manage receipt printers for this device. Saved printers stay local to the merchant app.',
+                      style: TextStyle(color: Colors.grey.shade700),
                     ),
-                    value: _autoAcceptEnabled,
-                    onChanged: isBusy
-                        ? null
-                        : (value) => setState(() => _autoAcceptEnabled = value),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _automationMinutesController,
-                    enabled: !isBusy,
-                    keyboardType: TextInputType.number,
-                    onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      labelText: 'Preparation time',
-                      suffixText: 'minutes',
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _openPrinters,
+                      icon: const Icon(Icons.print_outlined),
+                      label: const Text('Manage printers'),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final minutes in const [10, 15, 20, 30, 45, 60])
-                        ChoiceChip(
-                          label: Text('$minutes min'),
-                          selected:
-                              _automationMinutesController.text.trim() ==
-                              minutes.toString(),
-                          onSelected: isBusy
-                              ? null
-                              : (_) => setState(
-                                  () => _automationMinutesController.text =
-                                      minutes.toString(),
-                                ),
-                        ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (canManageAutomation) ...[
+                _SettingsCard(
+                  title: 'Order Automation',
+                  children: [
+                    if (provider.isLoadingOrderAutomation &&
+                        !_didLoadOrderAutomation) ...[
+                      const LinearProgressIndicator(),
+                      const SizedBox(height: 12),
                     ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(Icons.print_outlined, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          defaultPrinter == null
-                              ? 'No default printer configured on this device.'
-                              : 'Automatic printer: ${defaultPrinter.displayName}',
-                        ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Auto accept and start orders'),
+                      subtitle: const Text(
+                        'New paid orders are moved to Preparing and printed automatically.',
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Pay at Store and Pay at Counter orders are also auto-started, but are excluded from automatic Ready.',
-                    style: TextStyle(color: Colors.grey.shade700),
-                  ),
-                  if (provider.orderAutomationErrorMessage != null) ...[
+                      value: _autoAcceptEnabled,
+                      onChanged: isBusy
+                          ? null
+                          : (value) =>
+                                setState(() => _autoAcceptEnabled = value),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _automationMinutesController,
+                      enabled: !isBusy,
+                      keyboardType: TextInputType.number,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                        labelText: 'Preparation time',
+                        suffixText: 'minutes',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final minutes in const [10, 15, 20, 30, 45, 60])
+                          ChoiceChip(
+                            label: Text('$minutes min'),
+                            selected:
+                                _automationMinutesController.text.trim() ==
+                                minutes.toString(),
+                            onSelected: isBusy
+                                ? null
+                                : (_) => setState(
+                                    () => _automationMinutesController.text =
+                                        minutes.toString(),
+                                  ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.print_outlined, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            defaultPrinter == null
+                                ? 'No default printer configured on this device.'
+                                : 'Automatic printer: ${defaultPrinter.displayName}',
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 8),
                     Text(
-                      provider.orderAutomationErrorMessage!,
-                      style: TextStyle(color: Colors.red.shade700),
+                      'Pay at Store and Pay at Counter orders are also auto-started, but are excluded from automatic Ready.',
+                      style: TextStyle(color: Colors.grey.shade700),
                     ),
-                  ],
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: isBusy ? null : _saveOrderAutomationSettings,
-                    icon: provider.isSavingOrderAutomation
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.save_outlined),
-                    label: Text(
-                      provider.isSavingOrderAutomation
-                          ? 'Saving'
-                          : 'Save order automation',
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _SettingsCard(
-                title: 'Store Profile',
-                children: [
-                  _LogoEditor(
-                    controller: _logoUrlController,
-                    enabled: !isBusy,
-                    isUploading: provider.isUploadingLogo,
-                    onUpload: _pickAndUploadLogo,
-                    onUrlChanged: () {
-                      setState(() => _logoAssetId = '');
-                    },
-                    onRemove: () {
-                      setState(() {
-                        _logoAssetId = '';
-                        _logoUrlController.clear();
-                      });
-                    },
-                  ),
-                  if (_logoAssetId.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      'Asset ID: $_logoAssetId',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey.shade700,
+                    if (provider.orderAutomationErrorMessage != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        provider.orderAutomationErrorMessage!,
+                        style: TextStyle(color: Colors.red.shade700),
                       ),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _logoAltController,
-                    enabled: !isBusy,
-                    decoration: const InputDecoration(
-                      labelText: 'Logo Alt Text',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: _requiredValidator,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _storeNameController,
-                    enabled: !isBusy,
-                    decoration: const InputDecoration(
-                      labelText: 'Store Name',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: _requiredValidator,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _storePhoneController,
-                    enabled: !isBusy,
-                    keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(
-                      labelText: 'Phone',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: _requiredValidator,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _addressLine1Controller,
-                    enabled: !isBusy,
-                    decoration: const InputDecoration(
-                      labelText: 'Address Line 1',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: _requiredValidator,
-                  ),
-                  const SizedBox(height: 12),
-                  _ResponsivePair(
-                    first: TextFormField(
-                      controller: _addressCityController,
-                      enabled: !isBusy,
-                      decoration: const InputDecoration(
-                        labelText: 'City',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: _requiredValidator,
-                    ),
-                    second: TextFormField(
-                      controller: _addressRegionController,
-                      enabled: !isBusy,
-                      decoration: const InputDecoration(
-                        labelText: 'Region',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: _requiredValidator,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _ResponsivePair(
-                    first: TextFormField(
-                      controller: _addressCountryController,
-                      enabled: !isBusy,
-                      decoration: const InputDecoration(
-                        labelText: 'Country',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: _requiredValidator,
-                    ),
-                    second: TextFormField(
-                      controller: _addressPostalCodeController,
-                      enabled: !isBusy,
-                      decoration: const InputDecoration(
-                        labelText: 'Postal Code',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: _requiredValidator,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _addressDisplayController,
-                    enabled: !isBusy,
-                    decoration: InputDecoration(
-                      labelText: 'Display Address',
-                      helperText: _storeAddressDisplayFallback(),
-                      border: const OutlineInputBorder(),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _ScopeNote(),
-              const SizedBox(height: 12),
-              _SettingsCard(
-                title: 'Pricing',
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: _currency,
-                    decoration: const InputDecoration(
-                      labelText: 'Currency',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 'CAD', child: Text('CAD')),
                     ],
-                    onChanged: isBusy
-                        ? null
-                        : (value) {
-                            if (value == null) return;
-                            setState(() => _currency = value);
-                          },
-                  ),
-                  const SizedBox(height: 12),
-                  _MoneyField(
-                    controller: _deliveryFeeController,
-                    label: 'Delivery Fee',
-                    enabled: !isBusy,
-                  ),
-                  const SizedBox(height: 12),
-                  _MoneyField(
-                    controller: _deliveryServiceFeeController,
-                    label: 'Delivery Service Fee',
-                    enabled: !isBusy,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _taxNameController,
-                    enabled: !isBusy,
-                    decoration: const InputDecoration(
-                      labelText: 'Tax Name',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: _requiredValidator,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _taxRateController,
-                    enabled: !isBusy,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'Tax Rate',
-                      suffixText: '%',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) =>
-                        _numberRangeValidator(value, min: 0, max: 100),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _SettingsCard(
-                title: 'Pickup',
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _IntegerField(
-                          controller: _pickupMinController,
-                          label: 'Min minutes',
-                          enabled: !isBusy,
-                          onChanged: () => setState(() {}),
-                        ),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: isBusy ? null : _saveOrderAutomationSettings,
+                      icon: provider.isSavingOrderAutomation
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.save_outlined),
+                      label: Text(
+                        provider.isSavingOrderAutomation
+                            ? 'Saving'
+                            : 'Save order automation',
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _IntegerField(
-                          controller: _pickupMaxController,
-                          label: 'Max minutes',
-                          enabled: !isBusy,
-                          onChanged: () => setState(() {}),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (canManageStore) ...[
+                _SettingsCard(
+                  title: 'Store Profile',
+                  children: [
+                    _LogoEditor(
+                      controller: _logoUrlController,
+                      enabled: !isBusy,
+                      isUploading: provider.isUploadingLogo,
+                      onUpload: _pickAndUploadLogo,
+                      onUrlChanged: () {
+                        setState(() => _logoAssetId = '');
+                      },
+                      onRemove: () {
+                        setState(() {
+                          _logoAssetId = '';
+                          _logoUrlController.clear();
+                        });
+                      },
+                    ),
+                    if (_logoAssetId.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Asset ID: $_logoAssetId',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.grey.shade700,
                         ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Display: ${_pickupDisplay()}',
-                    style: TextStyle(color: Colors.grey.shade700),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _SettingsCard(
-                title: 'In-store Payment',
-                children: [
-                  Text(
-                    'Customers can still pay online. These options control orders that are settled at the restaurant.',
-                    style: TextStyle(color: Colors.grey.shade700),
-                  ),
-                  const SizedBox(height: 10),
-                  _InStorePaymentOptionEditor(
-                    title: 'Dine-in',
-                    buyerLabel: 'Pay at counter',
-                    enabled: _dineInInStoreEnabled,
-                    cashEnabled: _dineInCashEnabled,
-                    posCardEnabled: _dineInPosCardEnabled,
-                    collectionTiming: _dineInCollectionTiming,
-                    isBusy: isBusy,
-                    onEnabledChanged: (value) =>
-                        setState(() => _dineInInStoreEnabled = value),
-                    onCashChanged: (value) =>
-                        setState(() => _dineInCashEnabled = value),
-                    onPosCardChanged: (value) =>
-                        setState(() => _dineInPosCardEnabled = value),
-                    onTimingChanged: (value) =>
-                        setState(() => _dineInCollectionTiming = value),
-                  ),
-                  const Divider(height: 28),
-                  _InStorePaymentOptionEditor(
-                    title: 'Takeout',
-                    buyerLabel: 'Pay at store',
-                    enabled: _takeoutInStoreEnabled,
-                    cashEnabled: _takeoutCashEnabled,
-                    posCardEnabled: _takeoutPosCardEnabled,
-                    collectionTiming: _takeoutCollectionTiming,
-                    isBusy: isBusy,
-                    onEnabledChanged: (value) =>
-                        setState(() => _takeoutInStoreEnabled = value),
-                    onCashChanged: (value) =>
-                        setState(() => _takeoutCashEnabled = value),
-                    onPosCardChanged: (value) =>
-                        setState(() => _takeoutPosCardEnabled = value),
-                    onTimingChanged: (value) =>
-                        setState(() => _takeoutCollectionTiming = value),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _SettingsCard(
-                title: 'Business Hours',
-                children: [
-                  TextFormField(
-                    controller: _timezoneController,
-                    enabled: !isBusy,
-                    decoration: const InputDecoration(
-                      labelText: 'Timezone',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: _requiredValidator,
-                  ),
-                  const SizedBox(height: 12),
-                  for (final day in merchantWeekdayKeys) ...[
-                    _BusinessDayEditor(
-                      day: day,
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _logoAltController,
                       enabled: !isBusy,
-                      intervals:
-                          _weeklyIntervals[day] ?? const <_IntervalForm>[],
-                      onOpenChanged: (value) => _setDayOpen(day, value),
-                      onAddInterval: () => _addWeeklyInterval(day),
-                      onRemoveInterval: (index) =>
-                          _removeWeeklyInterval(day, index),
-                    ),
-                    if (day != merchantWeekdayKeys.last)
-                      const Divider(height: 24),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 12),
-              _SettingsCard(
-                title: 'Special Dates',
-                children: [
-                  if (_specialDateForms.isEmpty)
-                    Text(
-                      'No special date overrides.',
-                      style: TextStyle(color: Colors.grey.shade700),
-                    ),
-                  for (
-                    var index = 0;
-                    index < _specialDateForms.length;
-                    index++
-                  ) ...[
-                    _SpecialDateEditor(
-                      index: index,
-                      form: _specialDateForms[index],
-                      enabled: !isBusy,
-                      onClosedChanged: (value) =>
-                          _setSpecialDateClosed(index, value),
-                      onAddInterval: () => _addSpecialDateInterval(index),
-                      onRemoveInterval: (intervalIndex) =>
-                          _removeSpecialDateInterval(index, intervalIndex),
-                      onRemove: () => _removeSpecialDate(index),
+                      decoration: const InputDecoration(
+                        labelText: 'Logo Alt Text',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: _requiredValidator,
                     ),
                     const SizedBox(height: 12),
-                  ],
-                  OutlinedButton.icon(
-                    onPressed: isBusy ? null : _addSpecialDate,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add special date'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _SettingsCard(
-                title: 'Public Holidays',
-                children: [
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Closed by default on listed holidays'),
-                    value: _publicHolidaysClosedByDefault,
-                    onChanged: isBusy
-                        ? null
-                        : (value) {
-                            setState(() {
-                              _publicHolidaysClosedByDefault = value;
-                            });
-                          },
-                  ),
-                  if (_holidayDateForms.isEmpty)
-                    Text(
-                      'No public holidays listed.',
-                      style: TextStyle(color: Colors.grey.shade700),
-                    ),
-                  for (
-                    var index = 0;
-                    index < _holidayDateForms.length;
-                    index++
-                  ) ...[
-                    _HolidayDateEditor(
-                      form: _holidayDateForms[index],
+                    TextFormField(
+                      controller: _storeNameController,
                       enabled: !isBusy,
-                      onRemove: () => _removeHolidayDate(index),
+                      decoration: const InputDecoration(
+                        labelText: 'Store Name',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: _requiredValidator,
                     ),
                     const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _storePhoneController,
+                      enabled: !isBusy,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: _requiredValidator,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _addressLine1Controller,
+                      enabled: !isBusy,
+                      decoration: const InputDecoration(
+                        labelText: 'Address Line 1',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: _requiredValidator,
+                    ),
+                    const SizedBox(height: 12),
+                    _ResponsivePair(
+                      first: TextFormField(
+                        controller: _addressCityController,
+                        enabled: !isBusy,
+                        decoration: const InputDecoration(
+                          labelText: 'City',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: _requiredValidator,
+                      ),
+                      second: TextFormField(
+                        controller: _addressRegionController,
+                        enabled: !isBusy,
+                        decoration: const InputDecoration(
+                          labelText: 'Region',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: _requiredValidator,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _ResponsivePair(
+                      first: TextFormField(
+                        controller: _addressCountryController,
+                        enabled: !isBusy,
+                        decoration: const InputDecoration(
+                          labelText: 'Country',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: _requiredValidator,
+                      ),
+                      second: TextFormField(
+                        controller: _addressPostalCodeController,
+                        enabled: !isBusy,
+                        decoration: const InputDecoration(
+                          labelText: 'Postal Code',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: _requiredValidator,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _addressDisplayController,
+                      enabled: !isBusy,
+                      decoration: InputDecoration(
+                        labelText: 'Display Address',
+                        helperText: _storeAddressDisplayFallback(),
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
                   ],
-                  OutlinedButton.icon(
-                    onPressed: isBusy ? null : _addHolidayDate,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add holiday'),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (canSaveBuyerConfig) ...[
+                _ScopeNote(),
+                const SizedBox(height: 12),
+              ],
+              if (canManagePricing) ...[
+                _SettingsCard(
+                  title: 'Pricing',
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: _currency,
+                      decoration: const InputDecoration(
+                        labelText: 'Currency',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'CAD', child: Text('CAD')),
+                      ],
+                      onChanged: isBusy
+                          ? null
+                          : (value) {
+                              if (value == null) return;
+                              setState(() => _currency = value);
+                            },
+                    ),
+                    const SizedBox(height: 12),
+                    _MoneyField(
+                      controller: _deliveryFeeController,
+                      label: 'Delivery Fee',
+                      enabled: !isBusy,
+                    ),
+                    const SizedBox(height: 12),
+                    _MoneyField(
+                      controller: _deliveryServiceFeeController,
+                      label: 'Delivery Service Fee',
+                      enabled: !isBusy,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _taxNameController,
+                      enabled: !isBusy,
+                      decoration: const InputDecoration(
+                        labelText: 'Tax Name',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: _requiredValidator,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _taxRateController,
+                      enabled: !isBusy,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Tax Rate',
+                        suffixText: '%',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) =>
+                          _numberRangeValidator(value, min: 0, max: 100),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (canManageOperations) ...[
+                _SettingsCard(
+                  title: 'Pickup',
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _IntegerField(
+                            controller: _pickupMinController,
+                            label: 'Min minutes',
+                            enabled: !isBusy,
+                            onChanged: () => setState(() {}),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _IntegerField(
+                            controller: _pickupMaxController,
+                            label: 'Max minutes',
+                            enabled: !isBusy,
+                            onChanged: () => setState(() {}),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Display: ${_pickupDisplay()}',
+                      style: TextStyle(color: Colors.grey.shade700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _SettingsCard(
+                  title: 'In-store Payment',
+                  children: [
+                    Text(
+                      'Customers can still pay online. These options control orders that are settled at the restaurant.',
+                      style: TextStyle(color: Colors.grey.shade700),
+                    ),
+                    const SizedBox(height: 10),
+                    _InStorePaymentOptionEditor(
+                      title: 'Dine-in',
+                      buyerLabel: 'Pay at counter',
+                      enabled: _dineInInStoreEnabled,
+                      cashEnabled: _dineInCashEnabled,
+                      posCardEnabled: _dineInPosCardEnabled,
+                      collectionTiming: _dineInCollectionTiming,
+                      isBusy: isBusy,
+                      onEnabledChanged: (value) =>
+                          setState(() => _dineInInStoreEnabled = value),
+                      onCashChanged: (value) =>
+                          setState(() => _dineInCashEnabled = value),
+                      onPosCardChanged: (value) =>
+                          setState(() => _dineInPosCardEnabled = value),
+                      onTimingChanged: (value) =>
+                          setState(() => _dineInCollectionTiming = value),
+                    ),
+                    const Divider(height: 28),
+                    _InStorePaymentOptionEditor(
+                      title: 'Takeout',
+                      buyerLabel: 'Pay at store',
+                      enabled: _takeoutInStoreEnabled,
+                      cashEnabled: _takeoutCashEnabled,
+                      posCardEnabled: _takeoutPosCardEnabled,
+                      collectionTiming: _takeoutCollectionTiming,
+                      isBusy: isBusy,
+                      onEnabledChanged: (value) =>
+                          setState(() => _takeoutInStoreEnabled = value),
+                      onCashChanged: (value) =>
+                          setState(() => _takeoutCashEnabled = value),
+                      onPosCardChanged: (value) =>
+                          setState(() => _takeoutPosCardEnabled = value),
+                      onTimingChanged: (value) =>
+                          setState(() => _takeoutCollectionTiming = value),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _SettingsCard(
+                  title: 'Business Hours',
+                  children: [
+                    TextFormField(
+                      controller: _timezoneController,
+                      enabled: !isBusy,
+                      decoration: const InputDecoration(
+                        labelText: 'Timezone',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: _requiredValidator,
+                    ),
+                    const SizedBox(height: 12),
+                    for (final day in merchantWeekdayKeys) ...[
+                      _BusinessDayEditor(
+                        day: day,
+                        enabled: !isBusy,
+                        intervals:
+                            _weeklyIntervals[day] ?? const <_IntervalForm>[],
+                        onOpenChanged: (value) => _setDayOpen(day, value),
+                        onAddInterval: () => _addWeeklyInterval(day),
+                        onRemoveInterval: (index) =>
+                            _removeWeeklyInterval(day, index),
+                      ),
+                      if (day != merchantWeekdayKeys.last)
+                        const Divider(height: 24),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _SettingsCard(
+                  title: 'Special Dates',
+                  children: [
+                    if (_specialDateForms.isEmpty)
+                      Text(
+                        'No special date overrides.',
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
+                    for (
+                      var index = 0;
+                      index < _specialDateForms.length;
+                      index++
+                    ) ...[
+                      _SpecialDateEditor(
+                        index: index,
+                        form: _specialDateForms[index],
+                        enabled: !isBusy,
+                        onClosedChanged: (value) =>
+                            _setSpecialDateClosed(index, value),
+                        onAddInterval: () => _addSpecialDateInterval(index),
+                        onRemoveInterval: (intervalIndex) =>
+                            _removeSpecialDateInterval(index, intervalIndex),
+                        onRemove: () => _removeSpecialDate(index),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    OutlinedButton.icon(
+                      onPressed: isBusy ? null : _addSpecialDate,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add special date'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _SettingsCard(
+                  title: 'Public Holidays',
+                  children: [
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Closed by default on listed holidays'),
+                      value: _publicHolidaysClosedByDefault,
+                      onChanged: isBusy
+                          ? null
+                          : (value) {
+                              setState(() {
+                                _publicHolidaysClosedByDefault = value;
+                              });
+                            },
+                    ),
+                    if (_holidayDateForms.isEmpty)
+                      Text(
+                        'No public holidays listed.',
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
+                    for (
+                      var index = 0;
+                      index < _holidayDateForms.length;
+                      index++
+                    ) ...[
+                      _HolidayDateEditor(
+                        form: _holidayDateForms[index],
+                        enabled: !isBusy,
+                        onRemove: () => _removeHolidayDate(index),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    OutlinedButton.icon(
+                      onPressed: isBusy ? null : _addHolidayDate,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add holiday'),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: FilledButton.icon(
-          onPressed: isBusy ? null : _saveSettings,
-          icon: provider.isSaving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.save_outlined),
-          label: Text(provider.isSaving ? 'Saving' : 'Save settings'),
-        ),
-      ),
+      bottomNavigationBar: !canSaveBuyerConfig
+          ? null
+          : SafeArea(
+              minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: FilledButton.icon(
+                onPressed: isBusy ? null : _saveSettings,
+                icon: provider.isSaving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save_outlined),
+                label: Text(provider.isSaving ? 'Saving' : 'Save settings'),
+              ),
+            ),
     );
   }
 

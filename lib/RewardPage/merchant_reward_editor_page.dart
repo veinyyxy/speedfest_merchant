@@ -146,8 +146,8 @@ class _MerchantRewardEditorPageState extends State<MerchantRewardEditorPage> {
     final provider = context.watch<MerchantRewardsProvider>();
     final productsProvider = context.watch<MerchantProductsProvider>();
     final products = _rewardProducts(productsProvider.products);
-    final selectedProductId =
-        products.any((product) => product.id == _productId) ? _productId : null;
+    final selectedProduct = _findProduct(products, _productId);
+    final selectedProductId = selectedProduct?.id;
 
     return Scaffold(
       appBar: AppBar(
@@ -225,6 +225,12 @@ class _MerchantRewardEditorPageState extends State<MerchantRewardEditorPage> {
             _SectionCard(
               title: 'Redeem rule',
               children: [
+                if (_rewardType == 'product' &&
+                    productsProvider.isLoading &&
+                    products.isEmpty) ...[
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 12),
+                ],
                 _ResponsivePair(
                   first: TextFormField(
                     controller: _pointsController,
@@ -249,30 +255,32 @@ class _MerchantRewardEditorPageState extends State<MerchantRewardEditorPage> {
                           ),
                           validator: _positiveMoneyValidator,
                         )
-                      : const _ProductRewardValueHint(),
+                      : DropdownButtonFormField<String>(
+                          value: selectedProductId,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Reward product',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: [
+                            for (final product in products)
+                              DropdownMenuItem(
+                                value: product.id,
+                                child: Text(
+                                  _productLabel(product),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _productId = value),
+                          validator: _productValidator,
+                        ),
                 ),
                 if (_rewardType == 'product') ...[
                   const SizedBox(height: 12),
-                  if (productsProvider.isLoading && products.isEmpty) ...[
-                    const LinearProgressIndicator(),
-                    const SizedBox(height: 12),
-                  ],
-                  DropdownButtonFormField<String>(
-                    value: selectedProductId,
-                    decoration: const InputDecoration(
-                      labelText: 'Reward product',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: [
-                      for (final product in products)
-                        DropdownMenuItem(
-                          value: product.id,
-                          child: Text(_productLabel(product)),
-                        ),
-                    ],
-                    onChanged: (value) => setState(() => _productId = value),
-                    validator: _productValidator,
-                  ),
+                  _ProductRewardValueSummary(product: selectedProduct),
                   if (productsProvider.errorMessage != null) ...[
                     const SizedBox(height: 8),
                     Text(
@@ -401,22 +409,59 @@ class _ResponsivePair extends StatelessWidget {
   }
 }
 
-class _ProductRewardValueHint extends StatelessWidget {
-  const _ProductRewardValueHint();
+class _ProductRewardValueSummary extends StatelessWidget {
+  const _ProductRewardValueSummary({required this.product});
+
+  final MerchantProduct? product;
 
   @override
   Widget build(BuildContext context) {
-    return InputDecorator(
-      decoration: const InputDecoration(
-        labelText: 'Reward value',
-        border: OutlineInputBorder(),
+    final product = this.product;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLowest,
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(8),
       ),
-      child: Text(
-        'The selected product will be added to the order for free.',
-        style: TextStyle(color: Colors.grey.shade700),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.card_giftcard_outlined, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Reward value is automatic',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  product == null
+                      ? 'Choose a product above. It will be added to the order for free.'
+                      : '${product.name} · CAD \$${product.basePrice.toStringAsFixed(2)} retail value. The customer receives the product for free.',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
+}
+
+MerchantProduct? _findProduct(
+  List<MerchantProduct> products,
+  String? productId,
+) {
+  if (productId == null || productId.isEmpty) return null;
+  for (final product in products) {
+    if (product.id == productId) return product;
+  }
+  return null;
 }
 
 List<MerchantProduct> _rewardProducts(List<MerchantProduct> products) {
