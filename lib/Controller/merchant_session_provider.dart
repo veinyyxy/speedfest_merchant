@@ -6,21 +6,37 @@ import 'merchant_notification_service.dart';
 import 'signed_api_client.dart';
 
 class MerchantSessionProvider with ChangeNotifier {
-  MerchantSessionProvider({SignedApiClient? apiClient})
-    : apiClient = apiClient ?? SignedApiClient() {
+  MerchantSessionProvider({
+    SignedApiClient? apiClient,
+    SignedApiClient? backgroundApiClient,
+  }) {
+    this.apiClient = apiClient ?? SignedApiClient();
+    this.backgroundApiClient =
+        backgroundApiClient ??
+        SignedApiClient(
+          baseUrl: this.apiClient.baseUrl,
+          clientId: this.apiClient.clientId,
+          hmacSecretKey: this.apiClient.hmacSecretKey,
+        );
+    assert(!identical(this.apiClient, this.backgroundApiClient));
     this.apiClient.onAuthenticationFailure = _handleAuthenticationFailure;
+    this.backgroundApiClient.onAuthenticationFailure =
+        _handleAuthenticationFailure;
   }
 
-  final SignedApiClient apiClient;
+  late final SignedApiClient apiClient;
+  late final SignedApiClient backgroundApiClient;
 
   bool _isInitializing = true;
   bool _isLoggingIn = false;
+  bool _isLoggingOut = false;
   String? _token;
   MerchantUser? _merchantUser;
   String? _errorMessage;
 
   bool get isInitializing => _isInitializing;
   bool get isLoggingIn => _isLoggingIn;
+  bool get isLoggingOut => _isLoggingOut;
   bool get isLoggedIn => _token != null && _merchantUser != null;
   String? get token => _token;
   MerchantUser? get merchantUser => _merchantUser;
@@ -31,10 +47,20 @@ class MerchantSessionProvider with ChangeNotifier {
 
   void _handleAuthenticationFailure(AppException exception) {
     if (_token == null && _merchantUser == null) return;
+    _resetConnections();
     _token = null;
     _merchantUser = null;
     _errorMessage = exception.message;
     notifyListeners();
+  }
+
+  void resetBackgroundConnection() {
+    backgroundApiClient.resetConnection();
+  }
+
+  void _resetConnections() {
+    apiClient.resetConnection();
+    backgroundApiClient.resetConnection();
   }
 
   Future<void> initialize() async {
@@ -57,6 +83,7 @@ class MerchantSessionProvider with ChangeNotifier {
       final rawResponse = await apiClient.post(
         MerchantServiceConfig.merchantLoginPath,
         {'username': username.trim(), 'password': password},
+        retryOnConnectionFailure: true,
       );
       final response = Map<String, dynamic>.from(rawResponse as Map);
 
@@ -102,6 +129,7 @@ class MerchantSessionProvider with ChangeNotifier {
         MerchantServiceConfig.merchantValidatePath,
         <String, dynamic>{},
         token: _token,
+        retryOnConnectionFailure: true,
       );
       final response = Map<String, dynamic>.from(rawResponse as Map);
       if (response['success'] != true) {
@@ -173,29 +201,42 @@ class MerchantSessionProvider with ChangeNotifier {
   }
 
   Future<void> logout({bool callServer = true}) async {
-    final oldToken = _token;
-    if (oldToken != null && oldToken.isNotEmpty) {
-      await MerchantNotificationService.instance.deactivateForMerchant(
-        apiClient: apiClient,
-        token: oldToken,
-      );
-    }
-
-    _token = null;
-    _merchantUser = null;
-    _errorMessage = null;
+    if (_isLoggingOut) return;
+    _isLoggingOut = true;
     notifyListeners();
 
-    if (callServer && oldToken != null && oldToken.isNotEmpty) {
-      try {
+    final oldToken = _token;
+    try {
+      if (oldToken != null && oldToken.isNotEmpty) {
+        await MerchantNotificationService.instance.deactivateForMerchant(
+          apiClient: apiClient,
+          token: oldToken,
+        );
+      }
+
+      if (callServer && oldToken != null && oldToken.isNotEmpty) {
         await apiClient.post(
           MerchantServiceConfig.merchantLogoutPath,
           <String, dynamic>{},
           token: oldToken,
         );
-      } catch (_) {
-        // Local logout should succeed even if the server request fails.
       }
+    } catch (_) {
+      // Local logout should succeed even if the server request fails.
+    } finally {
+      _resetConnections();
+      _token = null;
+      _merchantUser = null;
+      _errorMessage = null;
+      _isLoggingOut = false;
+      notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    apiClient.close();
+    backgroundApiClient.close();
+    super.dispose();
   }
 }

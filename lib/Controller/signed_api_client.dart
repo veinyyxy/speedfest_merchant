@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 
 import '../Common/merchant_service_config.dart';
 
+typedef MerchantHttpClientFactory = http.Client Function();
+
 class AppException implements Exception {
   const AppException(this.message, {this.statusCode, this.code});
 
@@ -25,15 +27,41 @@ class SignedApiClient {
     this.clientId = MerchantServiceConfig.clientId,
     this.hmacSecretKey = MerchantServiceConfig.hmacSecretKey,
     http.Client? httpClient,
+    MerchantHttpClientFactory? httpClientFactory,
     this.onAuthenticationFailure,
-  }) : _httpClient = httpClient ?? http.Client();
+  }) : assert(httpClient == null || httpClientFactory == null),
+       _httpClientFactory =
+           httpClientFactory ??
+           (httpClient == null ? _createDefaultHttpClient : null),
+       _httpClient =
+           httpClient ??
+           (httpClientFactory?.call() ?? _createDefaultHttpClient());
 
   final String baseUrl;
   final String clientId;
   final String hmacSecretKey;
-  final http.Client _httpClient;
+  final MerchantHttpClientFactory? _httpClientFactory;
+  http.Client _httpClient;
   final Random _random = Random.secure();
   ValueChanged<AppException>? onAuthenticationFailure;
+  bool _isClosed = false;
+
+  static http.Client _createDefaultHttpClient() => http.Client();
+
+  bool resetConnection() {
+    final factory = _httpClientFactory;
+    if (_isClosed || factory == null) return false;
+    final previousClient = _httpClient;
+    _httpClient = factory();
+    previousClient.close();
+    return true;
+  }
+
+  void close() {
+    if (_isClosed) return;
+    _isClosed = true;
+    _httpClient.close();
+  }
 
   Uri buildUri(String path, [Map<String, dynamic>? queryParameters]) {
     final normalizedQuery = queryParameters?.map(
@@ -48,38 +76,52 @@ class SignedApiClient {
     String? token,
   }) async {
     final uri = buildUri(path, queryParameters);
-    final headers = _headers(
-      payload: _normalizeQuery(queryParameters),
-      token: token,
-    );
+    final payload = _normalizeQuery(queryParameters);
 
-    try {
-      final response = await _httpClient.get(uri, headers: headers);
-      return _handleResponse(response, authenticated: _hasToken(token));
-    } on http.ClientException catch (e) {
-      throw AppException('Network error: ${e.message}');
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final client = _requireOpenClient();
+      try {
+        final response = await client.get(
+          uri,
+          headers: _headers(payload: payload, token: token),
+        );
+        return _handleResponse(response, authenticated: _hasToken(token));
+      } on http.ClientException catch (e) {
+        final replaced = _replaceFailedClient(client);
+        if (attempt == 0 && replaced) continue;
+        throw AppException('Network error: ${e.message}');
+      }
     }
+    throw const AppException('Network error: request could not be completed');
   }
 
   Future<dynamic> post(
     String path,
     Map<String, dynamic> body, {
     String? token,
+    bool retryOnConnectionFailure = false,
   }) async {
     final encodedBody = jsonEncode(body);
-    final headers = _headers(payload: encodedBody, token: token)
-      ..['Content-Type'] = 'application/json';
 
-    try {
-      final response = await _httpClient.post(
-        Uri.parse('$baseUrl$path'),
-        headers: headers,
-        body: encodedBody,
-      );
-      return _handleResponse(response, authenticated: _hasToken(token));
-    } on http.ClientException catch (e) {
-      throw AppException('Network error: ${e.message}');
+    final attempts = retryOnConnectionFailure ? 2 : 1;
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      final client = _requireOpenClient();
+      final headers = _headers(payload: encodedBody, token: token)
+        ..['Content-Type'] = 'application/json';
+      try {
+        final response = await client.post(
+          Uri.parse('$baseUrl$path'),
+          headers: headers,
+          body: encodedBody,
+        );
+        return _handleResponse(response, authenticated: _hasToken(token));
+      } on http.ClientException catch (e) {
+        final replaced = _replaceFailedClient(client);
+        if (attempt + 1 < attempts && replaced) continue;
+        throw AppException('Network error: ${e.message}');
+      }
     }
+    throw const AppException('Network error: request could not be completed');
   }
 
   Future<dynamic> uploadFile(
@@ -99,13 +141,32 @@ class SignedApiClient {
       http.MultipartFile.fromBytes(fieldName, bytes, filename: filename),
     );
 
+    final client = _requireOpenClient();
     try {
-      final streamedResponse = await _httpClient.send(request);
+      final streamedResponse = await client.send(request);
       final response = await http.Response.fromStream(streamedResponse);
       return _handleResponse(response, authenticated: _hasToken(token));
     } on http.ClientException catch (e) {
+      _replaceFailedClient(client);
       throw AppException('Network error: ${e.message}');
     }
+  }
+
+  http.Client _requireOpenClient() {
+    if (_isClosed) {
+      throw const AppException('Network client is closed');
+    }
+    return _httpClient;
+  }
+
+  bool _replaceFailedClient(http.Client failedClient) {
+    final factory = _httpClientFactory;
+    if (_isClosed || factory == null) return false;
+    if (identical(_httpClient, failedClient)) {
+      _httpClient = factory();
+      failedClient.close();
+    }
+    return true;
   }
 
   Map<String, String> _headers({required String payload, String? token}) {

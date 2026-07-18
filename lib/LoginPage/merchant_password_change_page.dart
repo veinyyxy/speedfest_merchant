@@ -59,6 +59,7 @@ class _MerchantPasswordChangePageState
 
   @override
   Widget build(BuildContext context) {
+    final session = context.watch<MerchantSessionProvider>();
     final content = Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
@@ -154,12 +155,12 @@ class _MerchantPasswordChangePageState
                   if (widget.required) ...[
                     const SizedBox(height: 8),
                     TextButton(
-                      onPressed: _isSaving
+                      onPressed: _isSaving || session.isLoggingOut
                           ? null
-                          : () => context
-                                .read<MerchantSessionProvider>()
-                                .logout(),
-                      child: const Text('Logout'),
+                          : session.logout,
+                      child: Text(
+                        session.isLoggingOut ? 'Logging out' : 'Logout',
+                      ),
                     ),
                   ],
                 ],

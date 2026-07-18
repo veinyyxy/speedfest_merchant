@@ -50,6 +50,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
   late final VoidCallback _foregroundNotificationListener;
   int _lastForegroundNotificationSequence = 0;
   Timer? _notificationPollTimer;
+  bool _backgroundPollCycleInFlight = false;
   bool _notificationPollInFlight = false;
   bool _notificationPollSeeded = false;
   bool _automaticPrintInFlight = false;
@@ -81,8 +82,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
       _foregroundNotificationListener,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _refreshNotificationCount();
-      _startNotificationPolling();
+      _startNotificationPolling(refreshNotificationCount: true);
     });
   }
 
@@ -105,13 +105,12 @@ class _MerchantShellPageState extends State<MerchantShellPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (context.read<MerchantSessionProvider>().can(
-        MerchantPermissions.ordersView,
-      )) {
+      final session = context.read<MerchantSessionProvider>();
+      session.resetBackgroundConnection();
+      if (session.can(MerchantPermissions.ordersView)) {
         MerchantNavigationIntent.refreshOrders();
       }
-      unawaited(_refreshNotificationCount());
-      _startNotificationPolling();
+      _startNotificationPolling(refreshNotificationCount: true);
       return;
     }
     _notificationPollSeeded = false;
@@ -123,20 +122,38 @@ class _MerchantShellPageState extends State<MerchantShellPage>
     MerchantNavigationIntent.selectedDestinationId.value = destinationId;
   }
 
-  void _startNotificationPolling() {
+  void _startNotificationPolling({bool refreshNotificationCount = false}) {
     if (!mounted) return;
     _notificationPollTimer?.cancel();
-    _pollNotificationsForOrderEvents();
-    _pollAutomaticPrintJobs();
+    unawaited(
+      _runBackgroundPollCycle(
+        refreshNotificationCount: refreshNotificationCount,
+      ),
+    );
     _notificationPollTimer = Timer.periodic(_notificationPollInterval, (_) {
-      _pollNotificationsForOrderEvents();
-      _pollAutomaticPrintJobs();
+      unawaited(_runBackgroundPollCycle());
     });
   }
 
   void _stopNotificationPolling() {
     _notificationPollTimer?.cancel();
     _notificationPollTimer = null;
+  }
+
+  Future<void> _runBackgroundPollCycle({
+    bool refreshNotificationCount = false,
+  }) async {
+    if (_backgroundPollCycleInFlight || !mounted) return;
+    _backgroundPollCycleInFlight = true;
+    try {
+      if (refreshNotificationCount) {
+        await _refreshNotificationCount();
+      }
+      await _pollNotificationsForOrderEvents();
+      await _pollAutomaticPrintJobs();
+    } finally {
+      _backgroundPollCycleInFlight = false;
+    }
   }
 
   Future<void> _pollNotificationsForOrderEvents() async {
@@ -146,12 +163,13 @@ class _MerchantShellPageState extends State<MerchantShellPage>
     if (!session.can(MerchantPermissions.ordersView)) return;
     final token = session.token;
     if (token == null || token.isEmpty) return;
+    final apiClient = session.backgroundApiClient;
 
     _notificationPollInFlight = true;
     try {
       final provider = context.read<MerchantNotificationsProvider>();
       final snapshot = await provider.fetchNotificationSnapshot(
-        apiClient: session.apiClient,
+        apiClient: apiClient,
         token: token,
         limit: _notificationPollLimit,
       );
@@ -176,10 +194,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
 
       if (newNotifications.isEmpty || !mounted) return;
 
-      await provider.fetchNotifications(
-        apiClient: session.apiClient,
-        token: token,
-      );
+      await provider.fetchNotifications(apiClient: apiClient, token: token);
 
       for (final notification in newNotifications.reversed) {
         await _handleForegroundOrderAlert(
@@ -215,19 +230,20 @@ class _MerchantShellPageState extends State<MerchantShellPage>
     }
     final token = session.token;
     if (token == null || token.isEmpty) return;
+    final apiClient = session.backgroundApiClient;
 
     _automaticPrintInFlight = true;
     try {
       final autoPrintService = MerchantAutoPrintService.instance;
       final job = await autoPrintService.claimNext(
-        apiClient: session.apiClient,
+        apiClient: apiClient,
         token: token,
       );
       if (job == null) return;
 
       if (await autoPrintService.wasPrinted(job.id)) {
         await autoPrintService.reportResult(
-          apiClient: session.apiClient,
+          apiClient: apiClient,
           token: token,
           job: job,
           success: true,
@@ -236,13 +252,13 @@ class _MerchantShellPageState extends State<MerchantShellPage>
       }
 
       final order = await ordersProvider.fetchOrderDetail(
-        apiClient: session.apiClient,
+        apiClient: apiClient,
         token: token,
         orderId: job.orderId,
       );
       if (order == null) {
         await autoPrintService.reportResult(
-          apiClient: session.apiClient,
+          apiClient: apiClient,
           token: token,
           job: job,
           success: false,
@@ -253,7 +269,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
 
       if (settingsProvider.buyerConfig == null && !settingsProvider.isLoading) {
         await settingsProvider.fetchBuyerConfig(
-          apiClient: session.apiClient,
+          apiClient: apiClient,
           token: token,
         );
       }
@@ -265,7 +281,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
       );
       if (!printed) {
         await autoPrintService.reportResult(
-          apiClient: session.apiClient,
+          apiClient: apiClient,
           token: token,
           job: job,
           success: false,
@@ -276,7 +292,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
 
       await autoPrintService.markPrinted(job.id);
       await autoPrintService.reportResult(
-        apiClient: session.apiClient,
+        apiClient: apiClient,
         token: token,
         job: job,
         success: true,
@@ -298,7 +314,7 @@ class _MerchantShellPageState extends State<MerchantShellPage>
     if (token == null || token.isEmpty) return;
 
     await context.read<MerchantNotificationsProvider>().fetchUnreadCount(
-      apiClient: session.apiClient,
+      apiClient: session.backgroundApiClient,
       token: token,
     );
   }
@@ -494,18 +510,18 @@ class _MerchantShellPageState extends State<MerchantShellPage>
     }
     if (!mounted) return;
 
-    unawaited(_pollAutomaticPrintJobs());
-
     final session = context.read<MerchantSessionProvider>();
     final token = session.token;
     if (refreshNotifications && token != null && token.isNotEmpty) {
       await context.read<MerchantNotificationsProvider>().fetchNotifications(
-        apiClient: session.apiClient,
+        apiClient: session.backgroundApiClient,
         token: token,
       );
     } else {
       await _refreshNotificationCount();
     }
+
+    unawaited(_pollAutomaticPrintJobs());
 
     await MerchantLocalNotificationService.instance.showPayload(payload);
     if (!mounted) return;
@@ -1090,9 +1106,15 @@ class _AccountPageState extends State<_AccountPage> {
           ),
           const SizedBox(height: 10),
           FilledButton.icon(
-            onPressed: () => context.read<MerchantSessionProvider>().logout(),
-            icon: const Icon(Icons.logout),
-            label: const Text('Logout'),
+            onPressed: session.isLoggingOut ? null : session.logout,
+            icon: session.isLoggingOut
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.logout),
+            label: Text(session.isLoggingOut ? 'Logging out' : 'Logout'),
           ),
         ],
       ),
