@@ -1152,7 +1152,9 @@ double _numericValue(dynamic value) {
 }
 
 String _receiptFulfillmentLabel(MerchantOrder order) {
-  if (order.isDelivery) return 'Delivery';
+  if (order.isDelivery) {
+    return order.isScheduled ? 'Delivery (Scheduled)' : 'Delivery';
+  }
   if (order.isTakeout) return 'Takeout';
   if (order.isDineIn) return 'Dine-in';
   return order.fulfillmentLabel;

@@ -12,6 +12,7 @@ class MerchantOrder {
     required this.preparationMinutes,
     required this.dueAt,
     required this.dueAtLabel,
+    required this.isScheduled,
     required this.customerName,
     required this.customerPhone,
     required this.customerEmail,
@@ -46,6 +47,7 @@ class MerchantOrder {
   final int? preparationMinutes;
   final DateTime? dueAt;
   final String dueAtLabel;
+  final bool isScheduled;
   final String customerName;
   final String customerPhone;
   final String customerEmail;
@@ -198,6 +200,22 @@ class MerchantOrder {
     final dueAtValue =
         _firstValue(json, const ['due_at', 'dueAt']) ??
         _firstValue(fulfillmentDetail, const ['due_at', 'dueAt']);
+    final fulfillmentTiming = _firstString(
+      json,
+      const ['fulfillment_timing', 'fulfillmentTiming'],
+      fallback: _firstString(fulfillmentDetail, const [
+        'fulfillment_timing',
+        'fulfillmentTiming',
+      ]),
+    ).toLowerCase();
+    final isScheduled = _firstBool(
+      json,
+      const ['is_scheduled', 'isScheduled'],
+      fallback: _firstBool(fulfillmentDetail, const [
+        'is_scheduled',
+        'isScheduled',
+      ], fallback: fulfillmentTiming == 'scheduled'),
+    );
 
     return MerchantOrder(
       id: _firstString(json, const ['order_id', 'orderId', 'id']),
@@ -226,6 +244,7 @@ class MerchantOrder {
       preparationMinutes: _optionalInt(preparationMinutesValue),
       dueAt: _parseDate(dueAtValue),
       dueAtLabel: _formatDate(dueAtValue),
+      isScheduled: isScheduled,
       customerName: _firstString(customer, const [
         'username',
         'display_name',

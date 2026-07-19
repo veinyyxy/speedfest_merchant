@@ -333,7 +333,6 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     final today = DateTime.now();
     return switch (_businessStageFilter) {
       'active' => _startOfDay(today),
-      'upcoming' => _startOfDay(today.add(const Duration(days: 1))),
       'history' => null,
       _ => _startOfDay(today),
     };
@@ -345,7 +344,6 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     final today = DateTime.now();
     return switch (_businessStageFilter) {
       'active' => _endOfDay(today),
-      'upcoming' => null,
       'history' => _endOfDay(today.subtract(const Duration(days: 1))),
       _ => _endOfDay(today),
     };
@@ -396,7 +394,6 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     return switch (_businessStageFilter) {
       'active' =>
         !createdAt.isBefore(todayStart) && !createdAt.isAfter(todayEnd),
-      'upcoming' => createdAt.isAfter(todayEnd),
       'history' => createdAt.isBefore(todayStart),
       _ => !createdAt.isBefore(todayStart) && !createdAt.isAfter(todayEnd),
     };
@@ -857,9 +854,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
 
     final today = DateTime.now();
     final todayStart = _startOfDay(today);
-    final todayEnd = _endOfDay(today);
     if (createdAt.isBefore(todayStart)) return 'history';
-    if (createdAt.isAfter(todayEnd)) return 'upcoming';
     return 'active';
   }
 
@@ -1283,7 +1278,6 @@ const _businessFulfillmentFilters = <_FulfillmentFilter>[
 
 const _businessStageFilters = <_BusinessFilter>[
   _BusinessFilter('active', 'Active'),
-  _BusinessFilter('upcoming', 'Upcoming'),
   _BusinessFilter('history', 'History'),
 ];
 

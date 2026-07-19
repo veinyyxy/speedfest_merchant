@@ -127,6 +127,11 @@ void main() {
       'created_at': '2026-07-17T18:00:00Z',
       'preparation_minutes': 30,
       'due_at': '2026-07-17T18:30:00Z',
+      'fulfillment_detail': {
+        'fulfillment_timing': 'scheduled',
+        'is_scheduled': true,
+        'scheduled_for': '2026-07-17T18:30:00Z',
+      },
       'customer': {'name': 'Alex'},
       'order_note': orderNote,
       'items': [
@@ -161,6 +166,7 @@ void main() {
     );
 
     expect(receipt.text, contains('Powered by Speedfeast'));
+    expect(receipt.text, contains('Delivery (Scheduled)'));
     expect(receipt.text, contains('Alex\nNote: $orderNote'));
     expect(order.preparationMinutes, 30);
     expect(receipt.text, contains('Due at July 17'));
@@ -333,9 +339,15 @@ void main() {
           .renderOrder(
             order: MerchantOrder.fromJson({
               'order_id': 'fallback-order',
+              'fulfillment_type': 'delivery',
               'created_at': '2026-07-17T18:00:00Z',
               'preparation_minutes': 20,
               'due_at': '2026-07-17T18:20:00Z',
+              'fulfillment_detail': {
+                'fulfillment_timing': 'scheduled',
+                'is_scheduled': true,
+                'scheduled_for': '2026-07-17T18:20:00Z',
+              },
               'customer': {'name': 'Alex'},
               'order_note': 'Call on arrival',
               'items': [
@@ -351,6 +363,7 @@ void main() {
             paperSize: MerchantPrinterPaperSize.mm80,
           );
       expect(receipt.text, contains('Alex\nNote: Call on arrival'));
+      expect(receipt.text, contains('Delivery (Scheduled)'));
       expect(receipt.text, contains('Due at July 17'));
       expect(receipt.text, contains('Note: No onions'));
     },
