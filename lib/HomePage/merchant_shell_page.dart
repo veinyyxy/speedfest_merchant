@@ -298,7 +298,8 @@ class _MerchantShellPageState extends State<MerchantShellPage>
         success: true,
       );
       debugPrint(
-        '[AutoPrint] Printed ${job.orderId} on ${printer.displayName}.',
+        '[AutoPrint] Printed ${job.orderId} on ${printer.displayName} '
+        '(${printer.receiptCopiesLabel}).',
       );
     } catch (err) {
       debugPrint('[AutoPrint] Unable to process print job: $err');

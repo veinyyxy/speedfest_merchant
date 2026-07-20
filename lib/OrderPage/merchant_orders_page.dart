@@ -614,7 +614,8 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
 
   Future<void> _printOrder(MerchantOrder order) async {
     final printersProvider = context.read<MerchantPrintersProvider>();
-    if (printersProvider.defaultPrinter == null) {
+    final printer = printersProvider.defaultPrinter;
+    if (printer == null) {
       final session = context.read<MerchantSessionProvider>();
       if (!session.can(MerchantPermissions.printersManage)) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -645,6 +646,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
 
     final ok = await printersProvider.printOrder(
       order: detail,
+      printer: printer,
       storeProfile: storeProfile,
     );
     if (!mounted) return;
@@ -653,7 +655,7 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
       SnackBar(
         content: Text(
           ok
-              ? 'Receipt sent for ${detail.displayId}.'
+              ? '${printer.receiptCopiesLabel} sent for ${detail.displayId}.'
               : printersProvider.errorMessage ??
                     'Receipt could not be printed.',
         ),

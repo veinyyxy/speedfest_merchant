@@ -1,4 +1,7 @@
 class MerchantPrinter {
+  static const minReceiptCopies = 1;
+  static const maxReceiptCopies = 10;
+
   const MerchantPrinter({
     required this.id,
     required this.name,
@@ -7,9 +10,12 @@ class MerchantPrinter {
     required this.port,
     required this.paperSize,
     this.protocol = MerchantPrinterProtocol.escPos,
+    this.receiptCopies = minReceiptCopies,
     required this.isDefault,
     required this.lastConnectedAt,
-  });
+  }) : assert(
+         receiptCopies >= minReceiptCopies && receiptCopies <= maxReceiptCopies,
+       );
 
   final String id;
   final String name;
@@ -18,6 +24,7 @@ class MerchantPrinter {
   final int port;
   final MerchantPrinterPaperSize paperSize;
   final MerchantPrinterProtocol protocol;
+  final int receiptCopies;
   final bool isDefault;
   final DateTime? lastConnectedAt;
 
@@ -54,6 +61,9 @@ class MerchantPrinter {
     };
   }
 
+  String get receiptCopiesLabel =>
+      receiptCopies == 1 ? '1 receipt copy' : '$receiptCopies receipt copies';
+
   int get lineWidth {
     return switch (paperSize) {
       MerchantPrinterPaperSize.mm58 => 32,
@@ -69,6 +79,7 @@ class MerchantPrinter {
     int? port,
     MerchantPrinterPaperSize? paperSize,
     MerchantPrinterProtocol? protocol,
+    int? receiptCopies,
     bool? isDefault,
     DateTime? lastConnectedAt,
     bool clearLastConnectedAt = false,
@@ -81,6 +92,7 @@ class MerchantPrinter {
       port: port ?? this.port,
       paperSize: paperSize ?? this.paperSize,
       protocol: protocol ?? this.protocol,
+      receiptCopies: receiptCopies ?? this.receiptCopies,
       isDefault: isDefault ?? this.isDefault,
       lastConnectedAt: clearLastConnectedAt
           ? null
@@ -97,6 +109,7 @@ class MerchantPrinter {
       'port': port,
       'paper_size': paperSize.name,
       'protocol': protocol.name,
+      'receipt_copies': receiptCopies,
       'is_default': isDefault,
       'last_connected_at': lastConnectedAt?.toIso8601String(),
     };
@@ -111,6 +124,7 @@ class MerchantPrinter {
       port: _readInt(json['port'], fallback: 9100),
       paperSize: _readPaperSize(json['paper_size']),
       protocol: _readProtocol(json['protocol']),
+      receiptCopies: _readReceiptCopies(json['receipt_copies']),
       isDefault: _readBool(json['is_default']),
       lastConnectedAt: DateTime.tryParse(
         _readString(json['last_connected_at']),
@@ -125,6 +139,7 @@ class MerchantPrinter {
     int port = 9100,
     MerchantPrinterPaperSize paperSize = MerchantPrinterPaperSize.mm80,
     MerchantPrinterProtocol protocol = MerchantPrinterProtocol.escPos,
+    int receiptCopies = minReceiptCopies,
     bool isDefault = false,
   }) {
     return MerchantPrinter(
@@ -135,6 +150,7 @@ class MerchantPrinter {
       port: port,
       paperSize: paperSize,
       protocol: protocol,
+      receiptCopies: receiptCopies,
       isDefault: isDefault,
       lastConnectedAt: null,
     );
@@ -146,6 +162,7 @@ class MerchantPrinter {
     required String address,
     MerchantPrinterPaperSize paperSize = MerchantPrinterPaperSize.mm80,
     MerchantPrinterProtocol protocol = MerchantPrinterProtocol.escPos,
+    int receiptCopies = minReceiptCopies,
     bool isDefault = false,
   }) {
     return MerchantPrinter(
@@ -156,6 +173,7 @@ class MerchantPrinter {
       port: 0,
       paperSize: paperSize,
       protocol: protocol,
+      receiptCopies: receiptCopies,
       isDefault: isDefault,
       lastConnectedAt: null,
     );
@@ -182,6 +200,7 @@ class MerchantDiscoveredPrinter {
     required String id,
     required MerchantPrinterPaperSize paperSize,
     required MerchantPrinterProtocol protocol,
+    int receiptCopies = MerchantPrinter.minReceiptCopies,
     required bool isDefault,
   }) {
     return MerchantPrinter(
@@ -192,6 +211,7 @@ class MerchantDiscoveredPrinter {
       port: port,
       paperSize: paperSize,
       protocol: protocol,
+      receiptCopies: receiptCopies,
       isDefault: isDefault,
       lastConnectedAt: null,
     );
@@ -212,6 +232,12 @@ String _readString(dynamic value, {String fallback = ''}) {
 int _readInt(dynamic value, {int fallback = 0}) {
   if (value is num) return value.toInt();
   return int.tryParse(value?.toString() ?? '') ?? fallback;
+}
+
+int _readReceiptCopies(dynamic value) {
+  return _readInt(value, fallback: MerchantPrinter.minReceiptCopies)
+      .clamp(MerchantPrinter.minReceiptCopies, MerchantPrinter.maxReceiptCopies)
+      .toInt();
 }
 
 bool _readBool(dynamic value) {

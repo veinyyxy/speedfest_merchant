@@ -188,6 +188,7 @@ class MerchantPrintersProvider with ChangeNotifier {
         printer: printer,
         receipt: receipt,
         title: 'SpeedFeast printer test',
+        copies: MerchantPrinter.minReceiptCopies,
       );
       _markConnected(printer.id);
       await _savePrinters();
@@ -282,6 +283,24 @@ class MerchantPrintersProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setPrinterReceiptCopies(String printerId, int copies) async {
+    final normalizedCopies = copies
+        .clamp(
+          MerchantPrinter.minReceiptCopies,
+          MerchantPrinter.maxReceiptCopies,
+        )
+        .toInt();
+    _printers = _printers
+        .map(
+          (printer) => printer.id == printerId
+              ? printer.copyWith(receiptCopies: normalizedCopies)
+              : printer,
+        )
+        .toList(growable: false);
+    await _savePrinters();
+    notifyListeners();
+  }
+
   Future<void> removePrinter(String printerId) async {
     _printers = _printers
         .where((printer) => printer.id != printerId)
@@ -334,7 +353,9 @@ class MerchantPrintersProvider with ChangeNotifier {
     required MerchantPrinter printer,
     required MerchantReceiptRenderResult receipt,
     required String title,
+    int? copies,
   }) async {
+    final receiptCopies = copies ?? printer.receiptCopies;
     if (printer.protocol == MerchantPrinterProtocol.starPrnt &&
         printer.connectionType != MerchantPrinterConnectionType.browser) {
       final bitmap = receipt.bitmapPng;
@@ -343,26 +364,34 @@ class MerchantPrintersProvider with ChangeNotifier {
           'Star receipt image could not be generated.',
         );
       }
-      await _platform.printStarImage(
-        printer,
-        bitmap,
-        paperWidthDots: receipt.paperWidthDots,
-        feedLines: receipt.feedLines,
-        cutMode: receipt.cutMode,
-      );
+      for (var copy = 0; copy < receiptCopies; copy++) {
+        await _platform.printStarImage(
+          printer,
+          bitmap,
+          paperWidthDots: receipt.paperWidthDots,
+          feedLines: receipt.feedLines,
+          cutMode: receipt.cutMode,
+        );
+      }
       return;
     }
 
     switch (printer.connectionType) {
       case MerchantPrinterConnectionType.bluetooth:
-        await _platform.printBluetoothBytes(printer, receipt.escPosBytes);
+        await _platform.printBluetoothBytes(
+          printer,
+          _repeatReceiptBytes(receipt.escPosBytes, receiptCopies),
+        );
       case MerchantPrinterConnectionType.network:
-        await _platform.printNetworkBytes(printer, receipt.escPosBytes);
+        await _platform.printNetworkBytes(
+          printer,
+          _repeatReceiptBytes(receipt.escPosBytes, receiptCopies),
+        );
       case MerchantPrinterConnectionType.browser:
         await _platform.printBrowserText(
           title: title,
-          text: receipt.text,
-          html: receipt.html,
+          text: _repeatBrowserReceiptText(receipt.text, receiptCopies),
+          html: _repeatBrowserReceiptHtml(receipt.html, receiptCopies),
         );
     }
   }
@@ -389,6 +418,7 @@ class MerchantPrintersProvider with ChangeNotifier {
       next[index] = normalizedPrinter.copyWith(
         id: existing.id,
         isDefault: existing.isDefault || normalizedPrinter.isDefault,
+        receiptCopies: existing.receiptCopies,
       );
       _printers = next;
       _normalizeDefaultPrinter();
@@ -458,6 +488,26 @@ class MerchantPrintersProvider with ChangeNotifier {
     if (err is MerchantPrinterException) return err.message;
     return err.toString();
   }
+}
+
+List<int> _repeatReceiptBytes(List<int> bytes, int copies) {
+  if (copies <= 1) return bytes;
+  return [for (var copy = 0; copy < copies; copy++) ...bytes];
+}
+
+String _repeatBrowserReceiptText(String text, int copies) {
+  if (copies <= 1) return text;
+  return List.filled(copies, text).join('\n\f\n');
+}
+
+String _repeatBrowserReceiptHtml(String html, int copies) {
+  if (copies <= 1) return html;
+  return List.generate(copies, (index) {
+    final pageBreak = index < copies - 1
+        ? 'break-after:page;page-break-after:always;'
+        : '';
+    return '<section style="$pageBreak">$html</section>';
+  }).join('\n');
 }
 
 int _comparePrinters(MerchantPrinter left, MerchantPrinter right) {

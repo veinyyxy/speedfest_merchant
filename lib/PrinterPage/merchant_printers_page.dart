@@ -121,6 +121,22 @@ class _MerchantPrintersPageState extends State<MerchantPrintersPage> {
     );
   }
 
+  Future<void> _setPrinterReceiptCopies(MerchantPrinter printer) async {
+    final copies = await showDialog<int>(
+      context: context,
+      builder: (_) => _ReceiptCopiesDialog(printer: printer),
+    );
+    if (!mounted || copies == null || copies == printer.receiptCopies) return;
+
+    final provider = context.read<MerchantPrintersProvider>();
+    await provider.setPrinterReceiptCopies(printer.id, copies);
+    if (!mounted) return;
+    _showMessage(
+      '${printer.displayName} will print '
+      '${copies == 1 ? '1 receipt copy' : '$copies receipt copies'} per order.',
+    );
+  }
+
   Future<void> _showReceiptTemplatePreview() async {
     final provider = context.read<MerchantPrintersProvider>();
     try {
@@ -215,6 +231,7 @@ class _MerchantPrintersPageState extends State<MerchantPrintersPage> {
               onConnect: _connectPrinter,
               onTest: _testPrinter,
               onProtocolChanged: _setPrinterProtocol,
+              onReceiptCopiesChanged: _setPrinterReceiptCopies,
             ),
             const SizedBox(height: 12),
             _NetworkPrinterCard(
@@ -434,6 +451,7 @@ class _SavedPrintersCard extends StatelessWidget {
     required this.onConnect,
     required this.onTest,
     required this.onProtocolChanged,
+    required this.onReceiptCopiesChanged,
   });
 
   final MerchantPrintersProvider provider;
@@ -441,6 +459,7 @@ class _SavedPrintersCard extends StatelessWidget {
   final ValueChanged<MerchantPrinter> onTest;
   final void Function(MerchantPrinter printer, MerchantPrinterProtocol protocol)
   onProtocolChanged;
+  final ValueChanged<MerchantPrinter> onReceiptCopiesChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -483,6 +502,7 @@ class _SavedPrintersCard extends StatelessWidget {
                     printer,
                     MerchantPrinterProtocol.starPrnt,
                   ),
+                  onSetReceiptCopies: () => onReceiptCopiesChanged(printer),
                   onRemove: () => provider.removePrinter(printer.id),
                 ),
               ),
@@ -504,6 +524,7 @@ class _PrinterTile extends StatelessWidget {
     required this.onSetDefault,
     required this.onUseEscPos,
     required this.onUseStarPrnt,
+    required this.onSetReceiptCopies,
     required this.onRemove,
   });
 
@@ -516,6 +537,7 @@ class _PrinterTile extends StatelessWidget {
   final VoidCallback onSetDefault;
   final VoidCallback onUseEscPos;
   final VoidCallback onUseStarPrnt;
+  final VoidCallback onSetReceiptCopies;
   final VoidCallback onRemove;
 
   @override
@@ -591,6 +613,7 @@ class _PrinterTile extends StatelessWidget {
             printer.targetLabel,
             printer.paperSizeLabel,
             printer.protocolLabel,
+            printer.receiptCopiesLabel,
             if (printer.lastConnectedAt != null)
               'Last connected ${_formatDateTime(printer.lastConnectedAt!)}',
           ].join(' · '),
@@ -611,6 +634,8 @@ class _PrinterTile extends StatelessWidget {
               onUseEscPos();
             case _PrinterAction.useStarPrnt:
               onUseStarPrnt();
+            case _PrinterAction.setReceiptCopies:
+              onSetReceiptCopies();
             case _PrinterAction.remove:
               onRemove();
           }
@@ -643,6 +668,10 @@ class _PrinterTile extends StatelessWidget {
               child: Text('Use StarPRNT / Star Line'),
             ),
           const PopupMenuItem(
+            value: _PrinterAction.setReceiptCopies,
+            child: Text('Set receipt copies'),
+          ),
+          const PopupMenuItem(
             value: _PrinterAction.remove,
             child: Text('Remove'),
           ),
@@ -658,7 +687,82 @@ enum _PrinterAction {
   setDefault,
   useEscPos,
   useStarPrnt,
+  setReceiptCopies,
   remove,
+}
+
+class _ReceiptCopiesDialog extends StatefulWidget {
+  const _ReceiptCopiesDialog({required this.printer});
+
+  final MerchantPrinter printer;
+
+  @override
+  State<_ReceiptCopiesDialog> createState() => _ReceiptCopiesDialogState();
+}
+
+class _ReceiptCopiesDialogState extends State<_ReceiptCopiesDialog> {
+  late int _copies;
+
+  @override
+  void initState() {
+    super.initState();
+    _copies = widget.printer.receiptCopies;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Receipt copies'),
+      content: SizedBox(
+        width: 320,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.printer.displayName),
+            const SizedBox(height: 14),
+            DropdownButtonFormField<int>(
+              value: _copies,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Copies per order',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                for (
+                  var copies = MerchantPrinter.minReceiptCopies;
+                  copies <= MerchantPrinter.maxReceiptCopies;
+                  copies++
+                )
+                  DropdownMenuItem(
+                    value: copies,
+                    child: Text(copies == 1 ? '1 copy' : '$copies copies'),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value != null) setState(() => _copies = value);
+              },
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Used by manual and automatic order printing. Test print remains one copy.',
+              style: TextStyle(color: Colors.grey.shade700),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_copies),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
 }
 
 class _NetworkPrinterCard extends StatelessWidget {

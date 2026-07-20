@@ -891,7 +891,8 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
                           child: Text(
                             defaultPrinter == null
                                 ? 'No default printer configured on this device.'
-                                : 'Automatic printer: ${defaultPrinter.displayName}',
+                                : 'Automatic printer: ${defaultPrinter.displayName} '
+                                      '· ${defaultPrinter.receiptCopiesLabel}',
                           ),
                         ),
                       ],
