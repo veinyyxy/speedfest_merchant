@@ -400,29 +400,22 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
   }
 
   bool _matchesBusinessQueueFilter(MerchantOrder order) {
-    final status = order.normalizedStatus;
-    return switch (_businessQueueFilter) {
-      'new_order' =>
-        (order.isAwaitingInStoreCollection && status == 'created') ||
-            status == 'paid' ||
-            status == 'accepted' ||
-            status == 'preparing',
-      'awaiting_collection' => order.isAwaitingInStoreCollection,
-      'ready' => status == 'ready',
-      'on_the_way' =>
-        order.isDelivery &&
-            _businessFulfillmentFilter == 'delivery' &&
-            status == 'on_the_way',
-      'delivered' =>
-        order.isDelivery &&
-            _businessFulfillmentFilter == 'delivery' &&
-            status == 'delivered',
-      'completed' =>
-        !order.isDelivery &&
-            _businessFulfillmentFilter != 'delivery' &&
-            status == 'completed',
-      _ => false,
-    };
+    return merchantOrderMatchesBusinessQueue(
+      order,
+      fulfillmentType: _businessFulfillmentFilter,
+      queue: _businessQueueFilter,
+    );
+  }
+
+  Map<String, int> _businessQueueCounts(
+    List<MerchantOrder> orders,
+    List<_BusinessFilter> filters,
+  ) {
+    return countMerchantBusinessQueues(
+      orders.where(_matchesBusinessStageFilter),
+      fulfillmentType: _businessFulfillmentFilter,
+      queues: filters.map((filter) => filter.key),
+    );
   }
 
   bool _matchesStatusFilter(MerchantOrder order) {
@@ -914,6 +907,12 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
     final statusFilters = _businessFilterMode
         ? const <_OrderFilter>[]
         : _statusFiltersForFulfillment(_fulfillmentFilter);
+    final businessQueueFilters = _businessQueueFiltersForFulfillment(
+      _businessFulfillmentFilter,
+    );
+    final businessQueueCounts = _businessFilterMode
+        ? _businessQueueCounts(provider.orders, businessQueueFilters)
+        : const <String, int>{};
 
     return Scaffold(
       appBar: AppBar(
@@ -953,9 +952,8 @@ class _MerchantOrdersPageState extends State<MerchantOrdersPage> {
               onSelected: _setBusinessStageFilter,
             ),
             _BusinessQueueFilterBar(
-              filters: _businessQueueFiltersForFulfillment(
-                _businessFulfillmentFilter,
-              ),
+              filters: businessQueueFilters,
+              counts: businessQueueCounts,
               selectedQueue: _businessQueueFilter,
               onSelected: _setBusinessQueueFilter,
             ),
@@ -1149,11 +1147,13 @@ class _BusinessStageFilterBar extends StatelessWidget {
 class _BusinessQueueFilterBar extends StatelessWidget {
   const _BusinessQueueFilterBar({
     required this.filters,
+    required this.counts,
     required this.selectedQueue,
     required this.onSelected,
   });
 
   final List<_BusinessFilter> filters;
+  final Map<String, int> counts;
   final String selectedQueue;
   final ValueChanged<String> onSelected;
 
@@ -1164,7 +1164,7 @@ class _BusinessQueueFilterBar extends StatelessWidget {
       children: [
         for (final filter in filters)
           ChoiceChip(
-            label: Text(filter.label),
+            label: Text('${filter.label} (${counts[filter.key] ?? 0})'),
             selected: selectedQueue == filter.key,
             onSelected: (_) => onSelected(filter.key),
           ),
@@ -1296,6 +1296,51 @@ const _businessNonDeliveryQueueFilters = <_BusinessFilter>[
   _BusinessFilter('awaiting_collection', 'Collect Payment'),
   _BusinessFilter('completed', 'Completed'),
 ];
+
+bool merchantOrderMatchesBusinessQueue(
+  MerchantOrder order, {
+  required String fulfillmentType,
+  required String queue,
+}) {
+  if (order.normalizedFulfillmentType != fulfillmentType) return false;
+
+  final status = order.normalizedStatus;
+  return switch (queue) {
+    'new_order' =>
+      (order.isAwaitingInStoreCollection && status == 'created') ||
+          status == 'paid' ||
+          status == 'accepted' ||
+          status == 'preparing',
+    'awaiting_collection' => order.isAwaitingInStoreCollection,
+    'ready' => status == 'ready',
+    'on_the_way' => fulfillmentType == 'delivery' && status == 'on_the_way',
+    'delivered' => fulfillmentType == 'delivery' && status == 'delivered',
+    'completed' => fulfillmentType != 'delivery' && status == 'completed',
+    _ => false,
+  };
+}
+
+Map<String, int> countMerchantBusinessQueues(
+  Iterable<MerchantOrder> orders, {
+  required String fulfillmentType,
+  required Iterable<String> queues,
+}) {
+  final scopedOrders = orders
+      .where((order) => order.normalizedFulfillmentType == fulfillmentType)
+      .toList(growable: false);
+  return {
+    for (final queue in queues)
+      queue: scopedOrders
+          .where(
+            (order) => merchantOrderMatchesBusinessQueue(
+              order,
+              fulfillmentType: fulfillmentType,
+              queue: queue,
+            ),
+          )
+          .length,
+  };
+}
 
 class _DateShortcut {
   const _DateShortcut(this.key, this.label, this.days);
