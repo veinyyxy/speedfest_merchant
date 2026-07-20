@@ -17,6 +17,8 @@ class MerchantPermissions {
   static const settingsOperationsManage = 'settings.operations.manage';
   static const settingsAutomationManage = 'settings.automation.manage';
   static const printersManage = 'printers.manage';
+  static const tablesView = 'tables.view';
+  static const tablesManage = 'tables.manage';
   static const usersView = 'users.view';
   static const usersManage = 'users.manage';
 
@@ -26,6 +28,7 @@ class MerchantPermissions {
     settingsOperationsManage,
     settingsAutomationManage,
     printersManage,
+    tablesView,
     usersView,
   };
 }

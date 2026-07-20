@@ -29,6 +29,15 @@ class MerchantServiceConfig {
       '/api/merchant/users/permissions/update';
   static const merchantUserPasswordResetPath =
       '/api/merchant/users/password/reset';
+  static const merchantDiningTablesPath = '/api/merchant/dine-in/tables';
+  static const merchantDiningTableCreatePath =
+      '/api/merchant/dine-in/tables/create';
+  static const merchantDiningTableBatchCreatePath =
+      '/api/merchant/dine-in/tables/batch-create';
+  static const merchantDiningTableUpdatePath =
+      '/api/merchant/dine-in/tables/update';
+  static const merchantDiningTableRotateTokenPath =
+      '/api/merchant/dine-in/tables/rotate-token';
   static const merchantOrdersPath = '/api/merchant/orders';
   static const merchantOrderDetailPath = '/api/merchant/orders/detail';
   static const merchantOrderStatusUpdatePath =

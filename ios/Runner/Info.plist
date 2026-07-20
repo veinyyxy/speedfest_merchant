@@ -24,6 +24,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Bluetooth access is used to connect receipt printers.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

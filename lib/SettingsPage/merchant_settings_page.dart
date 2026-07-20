@@ -9,6 +9,7 @@ import '../Controller/merchant_session_provider.dart';
 import '../Controller/merchant_settings_provider.dart';
 import '../Models/merchant_buyer_config.dart';
 import '../Models/merchant_order_automation.dart';
+import '../DineInPage/merchant_dining_tables_page.dart';
 import '../PrinterPage/merchant_printers_page.dart';
 import '../UserPage/merchant_users_page.dart';
 
@@ -383,6 +384,12 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
     ).push(MaterialPageRoute<void>(builder: (_) => const MerchantUsersPage()));
   }
 
+  Future<void> _openDiningTables() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const MerchantDiningTablesPage()),
+    );
+  }
+
   Future<ImageSource?> _showImageSourcePicker() {
     return showModalBottomSheet<ImageSource>(
       context: context,
@@ -718,6 +725,7 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
     final defaultPrinter = printersProvider.defaultPrinter;
     final canManagePrinters = session.can(MerchantPermissions.printersManage);
     final canViewUsers = session.can(MerchantPermissions.usersView);
+    final canViewTables = session.can(MerchantPermissions.tablesView);
     final canManageStore = session.can(MerchantPermissions.settingsStoreManage);
     final canManagePricing = session.can(
       MerchantPermissions.settingsPricingManage,
@@ -763,6 +771,24 @@ class _MerchantSettingsPageState extends State<MerchantSettingsPage> {
                 _SettingsError(
                   message: provider.errorMessage!,
                   onRetry: _fetchSettings,
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (canViewTables) ...[
+                _SettingsCard(
+                  title: 'Dine-in Tables',
+                  children: [
+                    Text(
+                      'Add table numbers and generate QR codes for dine-in ordering.',
+                      style: TextStyle(color: Colors.grey.shade700),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _openDiningTables,
+                      icon: const Icon(Icons.qr_code_2_outlined),
+                      label: const Text('Manage tables'),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
               ],
