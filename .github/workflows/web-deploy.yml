@@ -1,0 +1,128 @@
+name: Deploy Seller Web
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.32.5"
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Verify web release build
+        run: >-
+          flutter build web --release
+          --dart-define=MERCHANT_API_BASE_URL=https://example.invalid
+          --dart-define=MERCHANT_CLIENT_ID=ci-validation-merchant
+          --dart-define=MERCHANT_HMAC_SECRET_KEY=ci-validation-secret
+          --dart-define=MERCHANT_FIREBASE_WEB_VAPID_KEY=ci-validation-vapid-key
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: seller-web-production
+      cancel-in-progress: true
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.32.5"
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Validate production configuration
+        shell: bash
+        env:
+          MERCHANT_API_BASE_URL: ${{ vars.MERCHANT_API_BASE_URL }}
+          MERCHANT_CLIENT_ID: ${{ vars.MERCHANT_CLIENT_ID }}
+          MERCHANT_HMAC_SECRET_KEY: ${{ secrets.MERCHANT_HMAC_SECRET_KEY }}
+          MERCHANT_FIREBASE_WEB_VAPID_KEY: ${{ vars.MERCHANT_FIREBASE_WEB_VAPID_KEY }}
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+          CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          test -n "$MERCHANT_API_BASE_URL"
+          test -n "$MERCHANT_CLIENT_ID"
+          test -n "$MERCHANT_HMAC_SECRET_KEY"
+          test -n "$MERCHANT_FIREBASE_WEB_VAPID_KEY"
+          test -n "$AWS_ROLE_ARN"
+          test -n "$AWS_REGION"
+          test -n "$S3_BUCKET"
+          test -n "$CLOUDFRONT_DISTRIBUTION_ID"
+
+      - name: Build web release
+        env:
+          MERCHANT_API_BASE_URL: ${{ vars.MERCHANT_API_BASE_URL }}
+          MERCHANT_CLIENT_ID: ${{ vars.MERCHANT_CLIENT_ID }}
+          MERCHANT_HMAC_SECRET_KEY: ${{ secrets.MERCHANT_HMAC_SECRET_KEY }}
+          MERCHANT_FIREBASE_WEB_VAPID_KEY: ${{ vars.MERCHANT_FIREBASE_WEB_VAPID_KEY }}
+        run: >-
+          flutter build web --release
+          --dart-define=MERCHANT_API_BASE_URL="$MERCHANT_API_BASE_URL"
+          --dart-define=MERCHANT_CLIENT_ID="$MERCHANT_CLIENT_ID"
+          --dart-define=MERCHANT_HMAC_SECRET_KEY="$MERCHANT_HMAC_SECRET_KEY"
+          --dart-define=MERCHANT_FIREBASE_WEB_VAPID_KEY="$MERCHANT_FIREBASE_WEB_VAPID_KEY"
+
+      - name: Authenticate to AWS
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Deploy to S3
+        run: aws s3 sync build/web "s3://${{ vars.S3_BUCKET }}" --delete
+
+      - name: Invalidate CloudFront cache
+        run: >-
+          aws cloudfront create-invalidation
+          --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}"
+          --paths "/*"
